@@ -1,0 +1,171 @@
+
+model {
+  ##################################################################################################################
+  #
+  #  Priors
+  #
+  ##################################################################################################################
+  for(s in 1:nspp){
+
+      gam0[s] ~ dnorm(0, 0.01)
+      pInt[s] ~ dnorm(0, 0.01)
+
+  for(k in 1:nyears){
+
+      gam1[k,s] ~ dnorm(0, 0.01)
+      Error[k,s]~dnorm(0,0.01)
+    } # nyears
+
+      alpha[s]~dnorm(0,0.01)
+    
+    for (c in 1:ncovs){ 
+      beta[s,c]~dnorm(mu.theta,tau.theta)
+    } #ncovs
+    
+    # detection
+    for (m in 1:pcovs){
+      betaP[s,m]~dnorm(mu.thetaP,tau.thetaP)  
+    } #pcovs
+  }    #nspp
+  
+  ### Hyperpriors #######
+  mu.theta ~ dnorm(0,0.01)
+  tau.theta ~ dgamma(0.001,0.001)
+  mu.thetaP ~ dnorm(0,0.01)
+  tau.thetaP ~ dgamma(0.001,0.001)
+  
+  #################################################################################################################
+  #
+  #  Likelihood
+  #
+  #################################################################################################################
+  for(s in 1:nspp){                            # Species
+    for(i in 1:nschwarz) {                       # Schwarz Plot
+      N[i,1,s] ~ dpois(lambda[i,1,s])
+      lambda[i,1,s]<-exp( alpha[s]+
+                          beta[s,1]*Elev[i]+
+                          beta[s,2]*Elev2[i]+
+                          beta[s,3]*Slope[i]+
+                          beta[s,4]*Aspect[i]+
+                          Error[1,s]) 
+
+      for(j in 1:nreps) {                        # Replicates
+        y[i,j,1,s] ~ dbin(p[i,j,1,s], N[i,1,s]) 
+        p[i,j,1,s]<-1/(1+exp(-logit.p[i,j,1,s]))
+        logit.p[i,j,1,s]<-pInt[s]+
+                          betaP[s,1]*time[i,j,1]+
+                          betaP[s,2]*date[i,j,1]#+
+                          #betaP[s,3]*obsvr[i,j,1]
+      } #REPS
+      
+      
+      for(k in 2:4) {                      # Year 2000-2002
+        N[i,k,s] ~ dpois(gamma[i,k-1,s])
+        gamma[i,k-1,s] <- exp(gam0[s]+
+                              gam1[k,s]*N[i,k-1,s]+   #PriorYear&Trend
+                              beta[s,1]*Elev[i]+
+                              beta[s,2]*Elev2[i]+
+                              beta[s,3]*Slope[i]+
+                              beta[s,4]*Aspect[i]+
+                              Error[k,s])
+        
+        for(j in 1:nreps){                      # Replicates
+          y[i,j,k,s] ~ dbin(p[i,j,k,s], N[i,k,s]) 
+          p[i,j,k,s]<-1/(1+exp(-logit.p[i,j,k,s]))
+          logit.p[i,j,k,s]<-pInt[s]+
+                            betaP[s,1]*time[i,j,k]+
+                            betaP[s,2]*date[i,j,k]#+
+                           # betaP[s,3]*obsvr[i,j,k]
+          
+        }    # REPS
+      }      # YEARS
+      
+      for(k in 5:6) {                      # Year 2003-2004 - years with no counts
+        N[i,k,s] ~ dpois(gamma[i,k-1,s])
+        gamma[i,k-1,s] <- exp(gam0[s]+
+                              gam1[k,s]*mean(N[i,k-1,s])+    #PriorYear&Trend
+                              beta[s,1]*Elev[i]+
+                              beta[s,2]*Elev2[i]+
+                              beta[s,3]*Slope[i]+
+                              beta[s,4]*Aspect[i]+
+                              Error[k,s])
+        
+        for(j in 1:nreps){                      # Replicates
+          y[i,j,k,s] ~ dbin(p[i,j,k,s], N[i,k,s]) 
+          p[i,j,k,s]<-1/(1+exp(-logit.p[i,j,k,s]))
+          logit.p[i,j,k,s]<-pInt[s]+
+                            betaP[s,1]*time[i,j,k]+
+                            betaP[s,2]*date[i,j,k]#+
+                            #betaP[s,3]*obsvr[i,j,k]
+          
+        }    # REPS
+      }      # YEARS
+      
+      
+      
+      for(k in 7:nyears) {                      # Year 2005-2014
+        N[i,k,s] ~ dpois(gamma[i,k-1,s])
+        gamma[i,k-1,s] <- exp(gam0[s]+
+                              gam1[k,s]*N[i,k-1,s]+                                                             #PriorYear&Trend
+                                beta[s,1]*Elev[i]+
+                                beta[s,2]*Elev2[i]+
+                                beta[s,3]*Slope[i]+
+                                beta[s,4]*Aspect[i]+
+                                Error[k,s] )
+        
+        for(j in 1:nreps){                      # Replicates
+          y[i,j,k,s] ~ dbin(p[i,j,k,s], N[i,k,s]) 
+          p[i,j,k,s]<-1/(1+exp(-logit.p[i,j,k,s]))
+          logit.p[i,j,k,s]<-pInt[s]+
+                            betaP[s,1]*time[i,j,k]+
+                            betaP[s,2]*date[i,j,k]#+
+                           # betaP[s,3]*obsvr[i,j,k]
+          
+        }    # REPS
+      }      # YEARS
+    }        # SITES
+  }         # SPECIES
+ 
+  #############################################################################################################################
+  #############################################################################################################################
+  #
+  # Derived parameters 
+  #
+  #############################################################################################################################
+  #############################################################################################################################
+  #
+  # Calculate the population size sampled at HBEF in each year, k.
+  #
+  for(s in 1:nspp){
+  for(k in 1:nyears){
+Ntot[k,s]<-sum(N[,k,s])
+  }
+#for(i in 1:20844){
+
+
+  #HBEF[i,1,s]<- exp( alpha[s]+
+  #              beta[s,1]*HBEFgridCovs[i,3]+ # Elev
+  #              beta[s,2]*pow(HBEFgridCovs[i,3],2)+ #Elev2
+  #              beta[s,3]*HBEFgridCovs[i,5]+ #Slope
+  #              beta[s,4]*HBEFgridCovs[i,4]+ #Aspect
+  #              Error[1,s])
+
+  # for(k in 2:nyears) {
+
+  # Derive the population size within each 50x50m grid cell within HBEF
+# HBEF[i,k,s]<-exp(gam0[s]+
+  #              gam1[k,s]*HBEF[i,k-1,s]+                                                             
+  #              beta[s,1]*HBEFgridCovs[i,3]+ # Elev
+  #              beta[s,2]*pow(HBEFgridCovs[i,3],2)+ #Elev2
+  #              beta[s,3]*HBEFgridCovs[i,5]+ #Slope
+  #              beta[s,4]*HBEFgridCovs[i,4]+ #Aspect
+  #              Error[k,s] )
+  #  }
+ # }
+  # determine mean detection for each species
+    mean.p[s]<- mean(p[,,,s])
+  }
+
+  
+  
+} # END MODEL

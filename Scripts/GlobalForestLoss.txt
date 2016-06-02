@@ -1,0 +1,13 @@
+https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_lossyear_20N_070W.tif
+https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_lossyear_20N_080W.tif
+https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_lossyear_20N_090W.tif
+https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_lossyear_20N_100W.tif
+https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_lossyear_20N_110W.tif
+https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_lossyear_20N_120W.tif
+https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_lossyear_30N_070W.tif
+https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_lossyear_30N_080W.tif
+https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_lossyear_30N_090W.tif
+https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_lossyear_30N_100W.tif
+https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_lossyear_30N_110W.tif
+https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_lossyear_30N_120W.tif
+https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_lossyear_10N_090W.tif
