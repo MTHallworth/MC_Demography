@@ -80,19 +80,7 @@ for(i in 1:12){
   }
 }
 
-plot(rain[1,2:19,1],pch=19,type="o")
 
-par(bty="l")
-plot(apply(rain[c(1,2,3,4),2:19,1],2,sum),pch=19,type="o",ylab="Centered Rainfall",xlab="Year",yaxt="n",xaxt="n",ylim=c(-300,300))
-par(new=TRUE)
-plot(apply(rain[c(1,2,3,4),2:19,2],2,sum),pch=19,type="o",col="green",ylab="",xlab="Year",yaxt="n",xaxt="n",ylim=c(-300,300))
-par(new=TRUE)
-plot(apply(rain[c(1,2,3,4),2:19,3],2,sum),pch=19,type="o",col="red",ylab="",xlab="Year",yaxt="n",xaxt="n",ylim=c(-300,300))
-par(new=TRUE)
-plot(apply(rain[c(1,2,3,4),2:19,4],2,sum),pch=19,type="o",col="blue",ylab="",xlab="Year",yaxt="n",xaxt="n",ylim=c(-300,300))
-abline(h=0,lty=2,col="gray")
-axis(2,las=2)
-axis(1,at=c(1:18),year)
 
 # Vector of winter rainfall
 # Column 1 = PR
@@ -212,6 +200,7 @@ Date[is.na(Date)]<-0
 Time[is.na(Time)]<-0
 Obs[is.na(Obs)]<-0
 
+############ Dail - Madsen simplified ###################
 cat("
 model {
   ##################################################################################################################
@@ -226,7 +215,7 @@ model {
 
   for(k in 1:nyears){
 
-      gam1[k,s] ~ dnorm(0, 0.01)
+      gam1[k,s] ~ dunif(-10, 10)
       Error[k,s]~dnorm(0,0.01)
     } # nyears
 
@@ -255,7 +244,7 @@ model {
   #################################################################################################################
   for(s in 1:nspp){                            # Species
     for(i in 1:nschwarz) {                       # Schwarz Plot
-      N[i,1,s] ~ dpois(lambda[i,1,s])
+      N[i,1,s] ~ dpois(lambda[i,1,s])T(0,)
       lambda[i,1,s]<-exp( alpha[s]+
                           beta[s,1]*Elev[i]+
                           beta[s,2]*Elev2[i]+
@@ -271,54 +260,9 @@ model {
                           betaP[s,2]*date[i,j,1]#+
                           #betaP[s,3]*obsvr[i,j,1]
       } #REPS
-      
-      
-      for(k in 2:4) {                      # Year 2000-2002
-        N[i,k,s] ~ dpois(gamma[i,k-1,s])
-        gamma[i,k-1,s] <- exp(gam0[s]+
-                              gam1[k,s]*N[i,k-1,s]+   #PriorYear&Trend
-                              beta[s,1]*Elev[i]+
-                              beta[s,2]*Elev2[i]+
-                              beta[s,3]*Slope[i]+
-                              beta[s,4]*Aspect[i]+
-                              Error[k,s])
-        
-        for(j in 1:nreps){                      # Replicates
-          y[i,j,k,s] ~ dbin(p[i,j,k,s], N[i,k,s]) 
-          p[i,j,k,s]<-1/(1+exp(-logit.p[i,j,k,s]))
-          logit.p[i,j,k,s]<-pInt[s]+
-                            betaP[s,1]*time[i,j,k]+
-                            betaP[s,2]*date[i,j,k]#+
-                           # betaP[s,3]*obsvr[i,j,k]
-          
-        }    # REPS
-      }      # YEARS
-      
-      for(k in 5:6) {                      # Year 2003-2004 - years with no counts
-        N[i,k,s] ~ dpois(gamma[i,k-1,s])
-        gamma[i,k-1,s] <- exp(gam0[s]+
-                              gam1[k,s]*mean(N[i,k-1,s])+    #PriorYear&Trend
-                              beta[s,1]*Elev[i]+
-                              beta[s,2]*Elev2[i]+
-                              beta[s,3]*Slope[i]+
-                              beta[s,4]*Aspect[i]+
-                              Error[k,s])
-        
-        for(j in 1:nreps){                      # Replicates
-          y[i,j,k,s] ~ dbin(p[i,j,k,s], N[i,k,s]) 
-          p[i,j,k,s]<-1/(1+exp(-logit.p[i,j,k,s]))
-          logit.p[i,j,k,s]<-pInt[s]+
-                            betaP[s,1]*time[i,j,k]+
-                            betaP[s,2]*date[i,j,k]#+
-                            #betaP[s,3]*obsvr[i,j,k]
-          
-        }    # REPS
-      }      # YEARS
-      
-      
-      
-      for(k in 7:nyears) {                      # Year 2005-2014
-        N[i,k,s] ~ dpois(gamma[i,k-1,s])
+    
+      for(k in 2:nyears) {                      # Year 2000-2015
+        N[i,k,s] ~ dpois(gamma[i,k-1,s])T(0,)
         gamma[i,k-1,s] <- exp(gam0[s]+
                               gam1[k,s]*N[i,k-1,s]+       #PriorYear&Trend
                                 beta[s,1]*Elev[i]+
@@ -430,15 +374,218 @@ params<-c("gam1","Ntot","mean.p","beta","betaP")
 
 library(jagsUI)
 
+a<-Sys.time()
 M<-jags(model="MC_demo.txt",
         data= win.data,
         parameters.to.save = params,
+        seed = 9328,
         inits = inits,
         n.chain=3,
         n.thin = 2,
-        n.iter=3000,
-        n.burnin=1000,
+        n.iter=1000,
+        n.burnin=500,
+        DIC = FALSE,
         parallel = TRUE)
+Sys.time()-a
+Sys.time()
+
+#saveRDS(M,"Recruitment.rds")
+
+M<-readRDS("Data/recruitment.rds")
+############ Dail - Madsen fully parameterized ###################
+
+cat("
+model {
+#####################################################
+# Model parameters 
+  # Ni1 ~ Poisson(Lambda)
+  # Sit ~ Binomial(Nit-1,W)
+  # Git ~ Poisson(Nit-1*Gamma)
+  # Nit = Sit + Git 
+  # yijt ~ Binomial(Nit,p)
+
+  # Nit - latent var., abundance at site i in year t
+  # Sit - latent var., survivors
+  # Git - latent var., recruits
+  # Lambda - mean abundance in year t = 1 
+  # W - apparent survival 
+  # Gamma - recruitment rate
+  # p - detection probability 
+
+######################################################
+##################################################################################################################
+#
+#  Priors
+#
+##################################################################################################################
+for(s in 1:nspp){
+
+W[s] ~ dunif(0,1)  # Apparent Survival 
+#Gamma[s] ~ dnorm(0,0.001) # Recruitment Rate
+pInt[s] ~ dnorm(0, 0.01)
+alpha[s]~dnorm(0,0.01)
+gam0[s]~ dnorm(0,0.01)
+
+
+for (c in 1:ncovs){ 
+      beta[s,c]~dnorm(0,0.01)
+    } #ncovs
+    
+    # detection
+    for (m in 1:pcovs){
+      betaP[s,m]~dnorm(0,0.01)  
+    } #pcovs
+
+  for(k in 1:nyears){
+      Error[k,s]~dnorm(0,0.01)
+      gam1[k,s]~dnorm(0,0.01)
+    } # nyears
+  }    #nspp
+#################################################################################################################
+#
+#  Likelihood
+#
+#################################################################################################################
+# Year 1 - 1999
+for(s in 1:nspp){                   # Species
+    for(i in 1:nschwarz) {          # Schwarz Plot
+
+    N[i,1,s] ~ dpois(lambda[i,1,s])T(0,)
+    lambda[i,1,s]<-exp( alpha[s]+
+                        beta[s,1]*Elev[i]+
+                        beta[s,2]*Elev2[i]+
+                        beta[s,3]*Slope[i]+
+                        beta[s,4]*Aspect[i]+
+                       Error[1,s]) 
+    
+  for(j in 1:nreps) {                        # Replicates
+
+    y[i,j,1,s] ~ dbin(p[i,j,1,s], N[i,1,s]) 
+
+    p[i,j,1,s]<-1/(1+exp(-logit.p[i,j,1,s]))
+
+    logit.p[i,j,1,s]<-pInt[s]+
+                      betaP[s,1]*time[i,j,1]+
+                      betaP[s,2]*date[i,j,1]#+
+                      #betaP[s,3]*obsvr[i,j,1]
+    } #REPS
+
+for(t in 2:nyears){
+S[i,t-1,s] ~ dbin(W[s],N[i,t-1,s])    # Survival
+
+G[i,t-1,s] ~ dpois(Gamma[i,t-1,s]) # Recruits
+
+Gamma[i,t-1,s] <- exp(gam0[s]+gam1[t-1,s]*N[i,t-1,s])
+
+N[i,t,s] ~ dpois(Npred[i,t,s]) 
+Npred[i,t,s] <- S[i,t-1,s] + G[i,t-1,s]
+
+for(j in 1:nreps) {                        # Replicates
+
+    y[i,j,t,s] ~ dbin(p[i,j,t,s], N[i,t,s]) 
+
+    p[i,j,t,s]<-1/(1+exp(-logit.p[i,j,t,s]))
+
+    logit.p[i,j,t,s]<-pInt[s]+
+                      betaP[s,1]*time[i,j,t]+
+                      betaP[s,2]*date[i,j,t]#+
+                      #betaP[s,3]*obsvr[i,j,t]
+          } #REPS
+       } # t
+    } # i
+} # s
+
+#### Derived parameters ####
+for(s in 1:2) {
+for(t in 1:(nyears-1)) {
+RecruitRate[t,s]<-mean(Gamma[,t,s])
+  } # t
+} # s 
+
+######## Derived Parameters #############
+
+} # END MODEL",
+    fill=TRUE,file="MC_DM_fullParam.txt")
+
+# Function to put into initial values for Nst #
+N<-function(x){
+  Nst<-array(NA,dim=c(nrow(x),17,2))
+  for(s in 1:2){
+    Nst[,,s]<-apply(x[,,,s],c(1,3),max,na.rm=TRUE)+3
+  }
+  # If Nst==NA change value to 3 #
+  Nst[Nst==-Inf]<-NA
+  Nst[is.na(Nst)]<-3
+  return(Nst)
+}
+
+
+inits<-function() list(N=N(spec.mat))
+
+
+nchains<-3
+
+win.data<-list(Elev = Elev,
+               Elev2 = Elev2,
+               Slope = Slope,
+               Aspect = Aspect,
+               y = spec.mat,
+               nreps=3,
+               nschwarz=373,
+               nspp=2,
+               time = Time,
+               date = Date,
+               #obsvr = Obs,
+               ncovs=4,
+               pcovs=2,
+               nyears=17)
+               #HBEFgridCovs = HBEFgridCovs)
+
+params<-c("S","G","beta","betaP","W","Gamma","RecruitRate","gam1")
+
+library(jagsUI)
+
+a<-Sys.time()
+M<-jags(model="MC_DM_fullParam.txt",
+        data= win.data,
+        parameters.to.save = params,
+        seed = 9328,
+        inits = inits,
+        n.chain=3,
+        n.thin = 2,
+        n.iter=10000,
+        n.burnin=5000,
+        DIC = FALSE,
+        parallel = TRUE)
+Sys.time()-a
+Sys.time()
+
+
+spec.mat[305,,2,1]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 library(raster)
@@ -449,21 +596,42 @@ nbLoc<-c("Puerto Rico","Cuba","Jamaica","Hispaniola")
 par(mfrow=c(2,4))
 for(i in 1:4){
     par(bty="l")
-   if(i ==1){ plot(apply(totalRain[1:4,2:18,i],2,sum),M$mean$gam1[1:17,1],pch=19,cex=2,
-         main=paste(nbLoc[i]),xlab="", ylab="Recruitment")}
-  else{plot(apply(totalRain[1:4,2:18,i],2,sum),M$mean$gam1[1:17,1],pch=19,cex=2,
+   if(i ==1){ plot(totalRain[4,c(2:5,8:18),i],M$mean$gam1[c(1:4,7:17),1],pch=19,cex=2,#ylim=c(0,0.5),
+         main=paste(nbLoc[i]),xlab="", ylab="Recruitment")
+              segments(totalRain[4,2:18,i],M$q2.5$gam1[1:17,1],totalRain[4,2:18,i],M$q97.5$gam1[1:17,1])}
+  else{plot(totalRain[4,2:18,i],M$mean$gam1[1:17,1],pch=19,cex=2,ylim=c(0,0.5),
               main=paste(nbLoc[i]),xlab="", ylab="")}
     
-    abline(lm(M$mean$gam1[,1]~apply(totalRain[1:4,2:18,i],2,sum)))
+    #abline(lm(M$mean$gam1[,1]~apply(totalRain[4,2:18,i],2,sum)))
 }
 for(i in 1:4){
   par(bty="l")
-  if(i ==1){ plot(apply(totalRain[1:4,2:18,i],2,sum),M$mean$gam1[1:17,2],pch=19,cex=2,
+  if(i ==1){ plot(totalRain[4,2:18,i],M$mean$gam1[1:17,2],pch=19,cex=2,ylim=c(0,0.5),
                  xlab="", ylab="Recruitment")}
-  else{plot(apply(totalRain[1:4,2:18,i],2,sum),M$mean$gam1[1:17,2],pch=19,cex=2,
+  else{plot(totalRain[4,2:18,i],M$mean$gam1[1:17,2],pch=19,cex=2,ylim=c(0,0.5),
             ,xlab="", ylab="")}
   
-  abline(lm(M$mean$gam1[,1]~apply(totalRain[1:4,2:18,i],2,sum)))
+  #abline(lm(M$mean$gam1[,2]~apply(totalRain[1:4,2:18,i],2,sum)))
 }
-length(apply(totalRain[1:4,2:18,4],2,sum))
-traceplot(M,"gam1")
+
+plot(rain[1,2:19,1],pch=19,type="o")
+
+par(mfrow=c(2,1))
+plot(M$mean$gam1[,1],type="o",pch=19)
+par(new=TRUE)
+plot(M$mean$gam1[,2],type="o",pch=19,ylim=c(0,1),col="blue")
+par(bty="l")
+plot(apply(rain[c(1,2,3,4),2:19,1],2,sum),pch=19,type="o",ylab="Centered Rainfall",xlab="Year",yaxt="n",xaxt="n",ylim=c(-300,300))
+par(new=TRUE)
+plot(apply(rain[c(1,2,3,4),2:19,2],2,sum),pch=19,type="o",col="green",ylab="",xlab="Year",yaxt="n",xaxt="n",ylim=c(-300,300))
+par(new=TRUE)
+plot(apply(rain[c(1,2,3,4),2:19,3],2,sum),pch=19,type="o",col="red",ylab="",xlab="Year",yaxt="n",xaxt="n",ylim=c(-300,300))
+par(new=TRUE)
+plot(apply(rain[c(1,2,3,4),2:19,4],2,sum),pch=19,type="o",col="blue",ylab="",xlab="Year",yaxt="n",xaxt="n",ylim=c(-300,300))
+abline(h=0,lty=2,col="gray")
+axis(2,las=2)
+axis(1,at=c(1:18),year)
+
+
+M$mean$Gamma[,1,1]
+

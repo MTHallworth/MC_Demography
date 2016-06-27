@@ -12,7 +12,7 @@ model {
 
   for(k in 1:nyears){
 
-      gam1[k,s] ~ dnorm(0, 0.01)
+      gam1[k,s] ~ dunif(-10, 10)
       Error[k,s]~dnorm(0,0.01)
     } # nyears
 
