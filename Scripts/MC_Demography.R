@@ -320,7 +320,7 @@ model {
       for(k in 7:nyears) {                      # Year 2005-2014
         N[i,k,s] ~ dpois(gamma[i,k-1,s])
         gamma[i,k-1,s] <- exp(gam0[s]+
-                              gam1[k,s]*N[i,k-1,s]+                                                             #PriorYear&Trend
+                              gam1[k,s]*N[i,k-1,s]+       #PriorYear&Trend
                                 beta[s,1]*Elev[i]+
                                 beta[s,2]*Elev2[i]+
                                 beta[s,3]*Slope[i]+
@@ -436,8 +436,8 @@ M<-jags(model="MC_demo.txt",
         inits = inits,
         n.chain=3,
         n.thin = 2,
-        n.iter=2000,
-        n.burnin=500,
+        n.iter=3000,
+        n.burnin=1000,
         parallel = TRUE)
 
 

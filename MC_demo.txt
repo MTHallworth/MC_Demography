@@ -41,7 +41,7 @@ model {
   #################################################################################################################
   for(s in 1:nspp){                            # Species
     for(i in 1:nschwarz) {                       # Schwarz Plot
-      N[i,1,s] ~ dpois(lambda[i,1,s])
+      N[i,1,s] ~ dpois(lambda[i,1,s])T(0,)
       lambda[i,1,s]<-exp( alpha[s]+
                           beta[s,1]*Elev[i]+
                           beta[s,2]*Elev2[i]+
@@ -57,56 +57,11 @@ model {
                           betaP[s,2]*date[i,j,1]#+
                           #betaP[s,3]*obsvr[i,j,1]
       } #REPS
-      
-      
-      for(k in 2:4) {                      # Year 2000-2002
-        N[i,k,s] ~ dpois(gamma[i,k-1,s])
+    
+      for(k in 2:nyears) {                      # Year 2000-2015
+        N[i,k,s] ~ dpois(gamma[i,k-1,s])T(0,)
         gamma[i,k-1,s] <- exp(gam0[s]+
-                              gam1[k,s]*N[i,k-1,s]+   #PriorYear&Trend
-                              beta[s,1]*Elev[i]+
-                              beta[s,2]*Elev2[i]+
-                              beta[s,3]*Slope[i]+
-                              beta[s,4]*Aspect[i]+
-                              Error[k,s])
-        
-        for(j in 1:nreps){                      # Replicates
-          y[i,j,k,s] ~ dbin(p[i,j,k,s], N[i,k,s]) 
-          p[i,j,k,s]<-1/(1+exp(-logit.p[i,j,k,s]))
-          logit.p[i,j,k,s]<-pInt[s]+
-                            betaP[s,1]*time[i,j,k]+
-                            betaP[s,2]*date[i,j,k]#+
-                           # betaP[s,3]*obsvr[i,j,k]
-          
-        }    # REPS
-      }      # YEARS
-      
-      for(k in 5:6) {                      # Year 2003-2004 - years with no counts
-        N[i,k,s] ~ dpois(gamma[i,k-1,s])
-        gamma[i,k-1,s] <- exp(gam0[s]+
-                              gam1[k,s]*mean(N[i,k-1,s])+    #PriorYear&Trend
-                              beta[s,1]*Elev[i]+
-                              beta[s,2]*Elev2[i]+
-                              beta[s,3]*Slope[i]+
-                              beta[s,4]*Aspect[i]+
-                              Error[k,s])
-        
-        for(j in 1:nreps){                      # Replicates
-          y[i,j,k,s] ~ dbin(p[i,j,k,s], N[i,k,s]) 
-          p[i,j,k,s]<-1/(1+exp(-logit.p[i,j,k,s]))
-          logit.p[i,j,k,s]<-pInt[s]+
-                            betaP[s,1]*time[i,j,k]+
-                            betaP[s,2]*date[i,j,k]#+
-                            #betaP[s,3]*obsvr[i,j,k]
-          
-        }    # REPS
-      }      # YEARS
-      
-      
-      
-      for(k in 7:nyears) {                      # Year 2005-2014
-        N[i,k,s] ~ dpois(gamma[i,k-1,s])
-        gamma[i,k-1,s] <- exp(gam0[s]+
-                              gam1[k,s]*N[i,k-1,s]+                                                             #PriorYear&Trend
+                              gam1[k,s]*N[i,k-1,s]+       #PriorYear&Trend
                                 beta[s,1]*Elev[i]+
                                 beta[s,2]*Elev2[i]+
                                 beta[s,3]*Slope[i]+
