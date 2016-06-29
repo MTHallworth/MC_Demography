@@ -91,8 +91,10 @@ for(i in 1:12){
 winterRain<-AprilRain<-array(NA,c(18,4))
 for(i in 1:4){
 winterRain[,i]<-apply(rain[c(1,2,3,4),2:19,i],2,sum)
-AprilRain[,i]<-rain[4,2:19,i]
+AprilRain[,i]<-totalRain[4,1:18,i]
 }
+
+
 
 # Read in forest Loss in Km2
 
@@ -420,12 +422,17 @@ model {
 ##################################################################################################################
 for(s in 1:nspp){
 
-W[s] ~ dunif(0,1)  # Apparent Survival 
+W[s] ~ dunif(0.3,0.7)  # Apparent Survival 
 #Gamma[s] ~ dnorm(0,0.001) # Recruitment Rate
 pInt[s] ~ dnorm(0, 0.01)
 alpha[s]~dnorm(0,0.01)
 gam0[s]~ dnorm(0,0.01)
 
+
+for(r in 1:4){
+    gamApril[s,r]~dnorm(0,0.01)
+    gamTotal[s,r]~dnorm(0,0.01)
+    } # r
 
 for (c in 1:ncovs){ 
       beta[s,c]~dnorm(0,0.01)
@@ -439,6 +446,10 @@ for (c in 1:ncovs){
   for(k in 1:nyears){
       Error[k,s]~dnorm(0,0.01)
       gam1[k,s]~dnorm(0,0.01)
+
+   #for(r in 1:4){
+  #gamApril[k,s,r]~dnorm(0,0.01)
+   #  } # r
     } # nyears
   }    #nspp
 #################################################################################################################
@@ -475,7 +486,16 @@ S[i,t-1,s] ~ dbin(W[s],N[i,t-1,s])    # Survival
 
 G[i,t-1,s] ~ dpois(Gamma[i,t-1,s]) # Recruits
 
-Gamma[i,t-1,s] <- exp(gam0[s]+gam1[t-1,s]*N[i,t-1,s])
+Gamma[i,t-1,s] <- exp(gam0[s]+gam1[t-1,s]*N[i,t-1,s]+
+                              gamApril[s,1]*AprilRain[t-1,1]+ # PuertoRico
+                              gamApril[s,2]*AprilRain[t-1,2]+ # Cuba
+                              gamApril[s,3]*AprilRain[t-1,3]+ # Jamaica
+                              gamApril[s,4]*AprilRain[t-1,4]+ # Hisp
+                              gamTotal[s,1]*totalRain[t-1,1]+ # PuertoRico
+                              gamTotal[s,2]*totalRain[t-1,2]+ # Cuba
+                              gamTotal[s,3]*totalRain[t-1,3]+ # Jamaica
+                              gamTotal[s,4]*totalRain[t-1,4])  # Hisp
+  
 
 N[i,t,s] ~ dpois(Npred[i,t,s]) 
 Npred[i,t,s] <- S[i,t-1,s] + G[i,t-1,s]
@@ -499,6 +519,7 @@ for(j in 1:nreps) {                        # Replicates
 for(s in 1:2) {
 for(t in 1:(nyears-1)) {
 RecruitRate[t,s]<-mean(Gamma[,t,s])
+TotRecruit[t,s]<-sum(G[,t,s])
   } # t
 } # s 
 
@@ -511,16 +532,17 @@ RecruitRate[t,s]<-mean(Gamma[,t,s])
 N<-function(x){
   Nst<-array(NA,dim=c(nrow(x),17,2))
   for(s in 1:2){
-    Nst[,,s]<-apply(x[,,,s],c(1,3),max,na.rm=TRUE)+3
+    Nst[,,s]<-apply(x[,,,s],c(1,3),max,na.rm=TRUE)+1
   }
   # If Nst==NA change value to 3 #
   Nst[Nst==-Inf]<-NA
-  Nst[is.na(Nst)]<-3
+  Nst[is.na(Nst)]<-1
   return(Nst)
 }
 
 
-inits<-function() list(N=N(spec.mat))
+inits<-function() list(N=N(spec.mat),
+                       W = c(0.5,0.5))
 
 
 nchains<-3
@@ -538,13 +560,17 @@ win.data<-list(Elev = Elev,
                #obsvr = Obs,
                ncovs=4,
                pcovs=2,
-               nyears=17)
+               nyears=17,
+               AprilRain = AprilRain[2:18,],
+               totalRain = winterRain[2:18,])
+
                #HBEFgridCovs = HBEFgridCovs)
 
-params<-c("S","G","beta","betaP","W","Gamma","RecruitRate","gam1")
+params<-c("W","Gamma","RecruitRate","gam1","TotRecruit","gamApril","gamTotal")
 
 library(jagsUI)
 
+Sys.time()
 a<-Sys.time()
 M<-jags(model="MC_DM_fullParam.txt",
         data= win.data,
@@ -552,86 +578,50 @@ M<-jags(model="MC_DM_fullParam.txt",
         seed = 9328,
         inits = inits,
         n.chain=3,
-        n.thin = 2,
+        n.thin = 5,
         n.iter=10000,
+        codaOnly = c("Gamma"),
         n.burnin=5000,
         DIC = FALSE,
         parallel = TRUE)
 Sys.time()-a
 Sys.time()
 
+############################################################################################################################
+#
+#
+#  Plot-level 
+#
+#
+###########################################################################################################################
 
-spec.mat[305,,2,1]
+# OVENBIRD 
+OVENdata<-read.csv("Data/OvenCaptures.csv",header=FALSE)
+names(OVENdata)<-c("AlumBand","Sex","Date","Age","L","R","ColorBands")
 
+OVENdata<-subset(OVENdata,Age=="ASY" | Age=="SY")
+OVENdata$Date<-as.character.Date(OVENdata$Date)
+OVENdata$Date<-as.POSIXct(OVENdata$Date,format="%m/%d/%Y")
+OVENdata$Year<-format(OVENdata$Date,"%Y")
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-library(raster)
-plot(rasterFromXYZ(cbind(HBEFgridCovs[,1:2],M$mean$HBEF[,17,2])))
-
-nbLoc<-c("Puerto Rico","Cuba","Jamaica","Hispaniola")
-
-par(mfrow=c(2,4))
-for(i in 1:4){
-    par(bty="l")
-   if(i ==1){ plot(totalRain[4,c(2:5,8:18),i],M$mean$gam1[c(1:4,7:17),1],pch=19,cex=2,#ylim=c(0,0.5),
-         main=paste(nbLoc[i]),xlab="", ylab="Recruitment")
-              segments(totalRain[4,2:18,i],M$q2.5$gam1[1:17,1],totalRain[4,2:18,i],M$q97.5$gam1[1:17,1])}
-  else{plot(totalRain[4,2:18,i],M$mean$gam1[1:17,1],pch=19,cex=2,ylim=c(0,0.5),
-              main=paste(nbLoc[i]),xlab="", ylab="")}
-    
-    #abline(lm(M$mean$gam1[,1]~apply(totalRain[4,2:18,i],2,sum)))
-}
-for(i in 1:4){
-  par(bty="l")
-  if(i ==1){ plot(totalRain[4,2:18,i],M$mean$gam1[1:17,2],pch=19,cex=2,ylim=c(0,0.5),
-                 xlab="", ylab="Recruitment")}
-  else{plot(totalRain[4,2:18,i],M$mean$gam1[1:17,2],pch=19,cex=2,ylim=c(0,0.5),
-            ,xlab="", ylab="")}
-  
-  #abline(lm(M$mean$gam1[,2]~apply(totalRain[1:4,2:18,i],2,sum)))
+yr<-c(2009,2010,2011,2012,2013,2014)
+OVENpropSY<-rep(NA,length(yr))
+for(i in 1:length(yr)){
+OVENpropSY[i]<-table(subset(OVENdata$Age,OVENdata$Year==yr[i]))[7]/sum(table(subset(OVENdata$Age,OVENdata$Year==yr[i]))[c(4,7)])  
 }
 
-plot(rain[1,2:19,1],pch=19,type="o")
+# Black-throated Blue Warbler
+BTBWdata<-read.csv("Data/BtbwCaptures.csv")
 
-par(mfrow=c(2,1))
-plot(M$mean$gam1[,1],type="o",pch=19)
-par(new=TRUE)
-plot(M$mean$gam1[,2],type="o",pch=19,ylim=c(0,1),col="blue")
-par(bty="l")
-plot(apply(rain[c(1,2,3,4),2:19,1],2,sum),pch=19,type="o",ylab="Centered Rainfall",xlab="Year",yaxt="n",xaxt="n",ylim=c(-300,300))
-par(new=TRUE)
-plot(apply(rain[c(1,2,3,4),2:19,2],2,sum),pch=19,type="o",col="green",ylab="",xlab="Year",yaxt="n",xaxt="n",ylim=c(-300,300))
-par(new=TRUE)
-plot(apply(rain[c(1,2,3,4),2:19,3],2,sum),pch=19,type="o",col="red",ylab="",xlab="Year",yaxt="n",xaxt="n",ylim=c(-300,300))
-par(new=TRUE)
-plot(apply(rain[c(1,2,3,4),2:19,4],2,sum),pch=19,type="o",col="blue",ylab="",xlab="Year",yaxt="n",xaxt="n",ylim=c(-300,300))
-abline(h=0,lty=2,col="gray")
-axis(2,las=2)
-axis(1,at=c(1:18),year)
+BTBWdata<-subset(BTBWdata,AgeInital=="SY" | AgeInital=="ASY")
+BTBWdata$Date<-as.POSIXct(BTBWdata$EarliestDate,format="%m/%d/%Y")
+BTBWdata$Year<-format(BTBWdata$Date,"%Y")
 
+BTBWdata<-subset(BTBWdata,Year>=1999)
 
-M$mean$Gamma[,1,1]
+BTBWyr<-1999:2015
+BTBWpropSY<-rep(NA,length(BTBWyr))
+for(i in 1:length(BTBWyr)){
+  BTBWpropSY[i]<-table(subset(BTBWdata$AgeInital,BTBWdata$Year==BTBWyr[i]))[9]/sum(table(subset(BTBWdata$AgeInital,BTBWdata$Year==BTBWyr[i]))[c(4,9)])  
+}
 
