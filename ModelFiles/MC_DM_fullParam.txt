@@ -1,0 +1,130 @@
+
+model {
+#####################################################
+# Model parameters 
+  # Ni1 ~ Poisson(Lambda)
+  # Sit ~ Binomial(Nit-1,W)
+  # Git ~ Poisson(Nit-1*Gamma)
+  # Nit = Sit + Git 
+  # yijt ~ Binomial(Nit,p)
+
+  # Nit - latent var., abundance at site i in year t
+  # Sit - latent var., survivors
+  # Git - latent var., recruits
+  # Lambda - mean abundance in year t = 1 
+  # W - apparent survival 
+  # Gamma - recruitment rate
+  # p - detection probability 
+
+######################################################
+##################################################################################################################
+#
+#  Priors
+#
+##################################################################################################################
+for(s in 1:nspp){
+
+W[s] ~ dunif(0.3,0.7)  # Apparent Survival 
+#Gamma[s] ~ dnorm(0,0.001) # Recruitment Rate
+pInt[s] ~ dnorm(0, 0.01)
+alpha[s]~dnorm(0,0.01)
+gam0[s]~ dnorm(0,0.01)
+
+
+for(r in 1:4){
+    gamApril[s,r]~dnorm(0,0.01)
+    gamTotal[s,r]~dnorm(0,0.01)
+    } # r
+
+for (c in 1:ncovs){ 
+      beta[s,c]~dnorm(0,0.01)
+    } #ncovs
+    
+    # detection
+    for (m in 1:pcovs){
+      betaP[s,m]~dnorm(0,0.01)  
+    } #pcovs
+
+  for(k in 1:nyears){
+      Error[k,s]~dnorm(0,0.01)
+      gam1[k,s]~dnorm(0,0.01)
+
+   #for(r in 1:4){
+  #gamApril[k,s,r]~dnorm(0,0.01)
+   #  } # r
+    } # nyears
+  }    #nspp
+#################################################################################################################
+#
+#  Likelihood
+#
+#################################################################################################################
+# Year 1 - 1999
+for(s in 1:nspp){                   # Species
+    for(i in 1:nschwarz) {          # Schwarz Plot
+
+    N[i,1,s] ~ dpois(lambda[i,1,s])T(0,)
+    lambda[i,1,s]<-exp( alpha[s]+
+                        beta[s,1]*Elev[i]+
+                        beta[s,2]*Elev2[i]+
+                        beta[s,3]*Slope[i]+
+                        beta[s,4]*Aspect[i]+
+                       Error[1,s]) 
+    
+  for(j in 1:nreps) {                        # Replicates
+
+    y[i,j,1,s] ~ dbin(p[i,j,1,s], N[i,1,s]) 
+
+    p[i,j,1,s]<-1/(1+exp(-logit.p[i,j,1,s]))
+
+    logit.p[i,j,1,s]<-pInt[s]+
+                      betaP[s,1]*time[i,j,1]+
+                      betaP[s,2]*date[i,j,1]#+
+                      #betaP[s,3]*obsvr[i,j,1]
+    } #REPS
+
+for(t in 2:nyears){
+S[i,t-1,s] ~ dbin(W[s],N[i,t-1,s])    # Survival
+
+G[i,t-1,s] ~ dpois(Gamma[i,t-1,s]) # Recruits
+
+Gamma[i,t-1,s] <- exp(gam0[s]+gam1[t-1,s]*N[i,t-1,s]+
+                              gamApril[s,1]*AprilRain[t-1,1]+ # PuertoRico
+                              gamApril[s,2]*AprilRain[t-1,2]+ # Cuba
+                              gamApril[s,3]*AprilRain[t-1,3]+ # Jamaica
+                              gamApril[s,4]*AprilRain[t-1,4]+ # Hisp
+                              gamTotal[s,1]*totalRain[t-1,1]+ # PuertoRico
+                              gamTotal[s,2]*totalRain[t-1,2]+ # Cuba
+                              gamTotal[s,3]*totalRain[t-1,3]+ # Jamaica
+                              gamTotal[s,4]*totalRain[t-1,4])  # Hisp
+  
+
+N[i,t,s] ~ dpois(Npred[i,t,s]) 
+Npred[i,t,s] <- S[i,t-1,s] + G[i,t-1,s]
+
+for(j in 1:nreps) {                        # Replicates
+
+    y[i,j,t,s] ~ dbin(p[i,j,t,s], N[i,t,s]) 
+
+    p[i,j,t,s]<-1/(1+exp(-logit.p[i,j,t,s]))
+
+    logit.p[i,j,t,s]<-pInt[s]+
+                      betaP[s,1]*time[i,j,t]+
+                      betaP[s,2]*date[i,j,t]#+
+                      #betaP[s,3]*obsvr[i,j,t]
+          } #REPS
+       } # t
+    } # i
+} # s
+
+#### Derived parameters ####
+for(s in 1:2) {
+for(t in 1:(nyears-1)) {
+RecruitRate[t,s]<-mean(Gamma[,t,s])
+TotRecruit[t,s]<-sum(G[,t,s])
+  } # t
+} # s 
+
+######## Derived Parameters #############
+
+} # END MODEL
