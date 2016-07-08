@@ -1,5 +1,962 @@
 library(raster)
 library(rgdal)
+library(sp)
+library(RColorBrewer)
+library(maptools)
+library(rgeos)
+library(geosphere)
+library(SGAT)
+library(BAStag)
+library(MASS)
+
+##############################################################################
+#
+#
+# Light-Level Geolocator Analysis 
+#
+#
+#############################################################################
+
+# Black-throated blue warbler 
+
+Americas<-shapefile("Spatial_Layers/Americas.shp")
+states<-shapefile("Spatial_Layers/st99_d00.shp")
+BTBWdist<-shapefile("Spatial_Layers/BTBWdist.shp")
+BTBWdist<-gUnaryUnion(BTBWdist, id = NULL)
+
+# Read in the data from LUX files 
+BTBW_HBEF<-list.files("Data/GLdata/BTBW/LigFiles", pattern = ".lig", full.names = TRUE)
+
+BTBWnames<-list.files("Data/GLdata/BTBW/LigFiles",pattern = ".lig")
+
+# Read just the file names for Bird ID
+BirdId<- list.files("Data/GLdata/BTBW/LigFiles", pattern = ".lig")
+
+# Determine the number of birds
+nBirds<-length(BirdId)
+
+# Read in the lux file
+BTBWdata<-vector('list',nBirds)
+
+# Loop through all the files and read them in as LUX files #
+for(i in 1:nBirds){
+  BTBWdata[[i]] <- readLig(BTBW_HBEF[i],skip=1)  
+}
+
+head(BTBWdata[[1]])
+
+# Set the capture coordinates for each bird #
+CapLocs<-array(NA,c(nBirds,2))
+
+# give row names the same as the BTBW names files to keep everything organized.
+rownames(CapLocs)<-BTBWnames
+
+# Capture locations
+CapLocs[1,]<- cbind(-71.77347,43.93279)
+CapLocs[2,]<- cbind(-71.77193,43.93485)
+CapLocs[3,]<- cbind(-71.77704,43.93618)
+CapLocs[4,]<- cbind(-71.78147,43.93536)
+
+
+# Defining Twilights
+tm<-rise<-vector('list',nBirds)
+
+for(i in 1:nBirds){
+  tm[[i]] <- seq(from = BTBWdata[[i]][1,2], 
+                 to = BTBWdata[[i]][nrow(BTBWdata[[i]]),2], 
+                 by = "day")
+  
+  rise[[i]] <- rep(c(TRUE, FALSE), length(tm[[i]]))
+}
+
+# making predicted twilight times given location and zenith #
+cal.dat<-vector('list',nBirds)
+
+for(i in 1:nBirds){
+  cal.dat[[i]] <- data.frame(Twilight = twilight(rep(tm[[i]], each = 2),
+                                                 lon = CapLocs[i,1], 
+                                                 lat = CapLocs[i,2], 
+                                                 rise = rise[[i]], zenith = 94),
+                             Rise = rise[[i]]) 
+}
+
+twl<-vector('list',nBirds)
+for(i in 1:nBirds){
+twl[[i]]<-readRDS(paste0("Data/GLdata/BTBW/twilightFiles/",BirdId[[i]],".rds"))
+}
+
+# Create a vector with the dates known to be at deployment #
+calib.dates <- vector('list',nBirds)
+
+for(i in 1:nBirds){
+  calib.dates[[i]] <- c(strptime(twl[[i]][1,1],format="%Y-%m-%d"),as.POSIXct("2015-08-15"))
+}
+
+calibration.data<-vector('list',nBirds)
+
+for(i in 1:nBirds){
+  calibration.data[[i]]<-subset(twl[[i]],twl[[i]]$Twilight>=calib.dates[[i]][1] & twl[[i]]$Twilight<=calib.dates[[i]][2])
+}
+
+
+
+# Generate empty lists to store data 
+sun<-z<-twl_t<-twl_deviation<-fitml<-alpha<-vector('list',nBirds)
+
+# Determine the sun elevation angle - here called the Zenith angle #
+
+for(i in 1:nBirds){
+  
+  # Calculate solar time from calibration data 
+  sun[[i]]  <- solar(calibration.data[[i]][,1])
+  
+  # Adjust the solar zenith angle for atmospheric refraction
+  z[[i]] <- refracted( zenith(sun = sun[[i]],
+                              lon = CapLocs[i,1], 
+                              lat = CapLocs[i,2]))
+  
+  twl_t[[i]] <- twilight(tm = calibration.data[[i]][,1],
+                         lon = CapLocs[i,1], 
+                         lat = CapLocs[i,2], 
+                         rise = calibration.data[[i]][,2],
+                         zenith = quantile(z[[i]],probs=0.5))
+  
+  # Determine the difference in minutes from when the sun rose and the geolocator said it rose 
+  twl_deviation[[i]] <- ifelse(calibration.data[[i]]$Rise, as.numeric(difftime(calibration.data[[i]][,1], twl_t[[i]], units = "mins")),
+                               as.numeric(difftime(twl_t[[i]], calibration.data[[i]][,1], units = "mins")))
+  
+  # Throw out values less than 0 - These values are not valid 
+  twl_deviation[[i]]<-subset(twl_deviation[[i]], subset=twl_deviation[[i]]>=0)
+  
+  # Describe the distribution of the error 
+  fitml[[i]] <- fitdistr(twl_deviation[[i]], "log-Normal")
+  
+  # save the Twilight model parameters
+  alpha[[i]]<- c(fitml[[i]]$estimate[1], fitml[[i]]$estimate[2]) 
+}
+
+
+b<-unlist(twl_deviation)
+b[b>400]<-NA
+
+cols<-c("red","blue","green","yellow","orange","purple","brown","gray","black","pink")
+seq <- seq(0,60, length = 100)
+par(mfrow=c(1,2),mar=c(4,4,0,0))
+hist(b, freq = F,
+     yaxt="n",
+     ylim = c(0, 0.15),
+     xlim = c(0, 60),
+     breaks=15,
+     col="gray",
+     main = "",
+     xlab = "Twilight error (mins)")
+axis(2,las=2)
+for(i in 1:nBirds){
+  lines(seq, dlnorm(seq, alpha[[i]][1], alpha[[i]][2]), col = cols[i], lwd = 3, lty = 2)
+}
+
+#Zenith angle plot
+par(bty="l")
+plot(median(z[[1]],na.rm=TRUE),xlim=c(1,nBirds),ylim=c(80,100),pch=19,ylab="Zenith Angle",xlab="BTBW",col=cols[1])
+segments(1,quantile(z[[1]],probs=0.025),1,quantile(z[[1]],probs=0.975),col=cols[1])
+for(i in 2:nBirds){
+  par(new = TRUE)
+  plot(median(z[[i]],na.rm=TRUE)~i,xlim=c(1,nBirds),ylim=c(80,100),pch=19,yaxt="n",xaxt="n",ylab="",xlab="",col=cols[i])
+  segments(i,quantile(z[[i]],probs=0.025),i,quantile(z[[i]],probs=0.975),col=cols[i])
+}
+
+# Create empty vectors to store objects #
+d.twl<-path<-vector('list',nBirds)
+
+zenith0<-zenith1<-rep(NA,nBirds)
+
+# loop through the birds #
+for(i in 1:nBirds){
+  # Store the zenith (sun-elevation angle)
+  zenith0[i] <-quantile(z[[i]],prob=0.5)
+  zenith1[i]<-quantile(z[[i]],prob=0.95)
+}
+
+# subset the twilight file for dates after the first calibration date (presumably the deployment date)  
+# and exclude points that were deleted  
+# note we didn't delete any transitions here
+
+for(i in 1:nBirds){  
+  d.twl[[i]]<-subset(twl[[i]],twl[[i]]$Twilight>=calib.dates[[i]][1] & !Deleted)
+  
+  path[[i]] <- thresholdPath(twilight = d.twl[[i]]$Twilight,
+                             rise = d.twl[[i]]$Rise,
+                             zenith = zenith0[i],
+                             tol = 0)
+}
+
+
+x0 <- z0 <- vector('list',nBirds)
+
+for(i in 1:nBirds){
+  # Take the location estimates created above
+  x0[[i]]<- path[[i]]$x
+  
+  # the model also needs the mid-points - generate those here
+  z0[[i]]<- trackMidpts(x0[[i]])
+}
+
+beta <- c(0.7, 0.08)
+
+fixedx <- vector('list',nBirds)
+
+for(i in 1:nBirds){
+  fixedx[[i]]<- rep(FALSE, nrow(x0[[i]]))
+  
+  fixedx[[i]][c(1:10,(nrow(x0[[i]])-3):nrow(x0[[i]]))] <- TRUE
+  
+  x0[[i]][fixedx[[i]], 1] <- CapLocs[i,1]
+  x0[[i]][fixedx[[i]], 2] <- CapLocs[i,2]
+  
+  z0[[i]] <- trackMidpts(x0[[i]]) # update z0 positions
+}
+
+
+## Function to construct a land/sea mask
+distribution.mask <- function(xlim, ylim, n = 4, land = TRUE, shape) {
+  r <- raster(nrows = n * diff(ylim), ncols = n * diff(xlim), xmn = xlim[1], 
+              xmx = xlim[2], ymn = ylim[1], ymx = ylim[2], crs = proj4string(shape))
+  r <- cover(rasterize(shape, shift = c(-360, 0), r, 1, silent = TRUE), 
+             rasterize(shape, r, 1, silent = TRUE), rasterize(shape, r, 1, silent = TRUE))
+  r <- as.matrix(is.na(r))[nrow(r):1, ]
+  if (land) 
+    r <- !r
+  xbin <- seq(xlim[1], xlim[2], length = ncol(r) + 1)
+  ybin <- seq(ylim[1], ylim[2], length = nrow(r) + 1)
+  
+  function(p) {
+    r[cbind(.bincode(p[, 2], ybin), .bincode(p[, 1], xbin))]
+  }
+}
+
+WGS84<-"+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+crs(Americas)<-WGS84
+crs(BTBWdist)<-WGS84
+
+xlim=c(-100,-60)
+ylim=c(0,55)
+
+## Define mask for Ovenbird distribution
+is.dist <- distribution.mask(shape=BTBWdist,
+                             xlim = xlim,
+                             ylim = ylim,
+                             n = 4,
+                             land = TRUE)
+
+# Define the log prior for x and z
+log.prior <- function(p) {
+  f <- is.dist(p)
+  ifelse(f | is.na(f), 0, -10)
+}
+
+
+# Define the threshold model - slimilar to above #
+model <-  vector('list', nBirds)
+
+for(i in 1:nBirds){
+  model[[i]]<- thresholdModel(twilight = d.twl[[i]]$Twilight,
+                              rise = d.twl[[i]]$Rise,
+                              twilight.model = "ModifiedLogNormal",
+                              alpha = alpha[[i]],
+                              beta = beta,
+                              # Here is where we set the constraints for land
+                              logp.x = log.prior, logp.z = log.prior, 
+                              x0 = x0[[i]],
+                              z0 = z0[[i]],
+                              zenith = zenith1[i],
+                              fixedx = fixedx[[i]])
+}
+
+
+# This defines the error distribution around each location #
+proposal.x <- proposal.z <- vector('list',nBirds)
+
+for(i in 1:nBirds){
+  proposal.x[[i]] <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(x0[[i]]))
+  proposal.z[[i]] <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(z0[[i]]))
+}
+
+fit <- vector('list', nBirds)
+
+for(i in 1:nBirds){
+  
+  fit[[i]] <- estelleMetropolis(model = model[[i]],
+                                proposal.x = proposal.x[[i]],
+                                proposal.z = proposal.z[[i]],
+                                iters = 10000, # This value sets the number of iterations to run
+                                thin = 1,
+                                chains = 3)
+
+### Fine Tuning 
+
+proposal.x[[i]] <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(x0[[i]]))
+proposal.z[[i]] <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(z0[[i]]))
+
+fit[[i]] <- estelleMetropolis(model = model[[i]],
+                              proposal.x = proposal.x[[i]],
+                              proposal.z = proposal.z[[i]],
+                              x0 = chainLast(fit[[i]]$x),
+                              z0 = chainLast(fit[[i]]$z),
+                              iters=10000, # This value sets the number of iterations to run
+                              thin=2,
+                              chains=3)
+
+# Final Run
+
+proposal.x[[i]] <- mvnorm(chainCov(fit[[i]]$x),s=0.1)
+proposal.z[[i]] <- mvnorm(chainCov(fit[[i]]$z),s=0.1)
+
+# Note the increase in number of interations - this takes a bit longer to run
+fit[[i]] <- estelleMetropolis(model = model[[i]],
+                              proposal.x = proposal.x[[i]],
+                              proposal.z = proposal.z[[i]],
+                              x0=chainLast(fit[[i]]$x),
+                              z0=chainLast(fit[[i]]$z),
+                              iters=5000,  # This value sets the number of iterations to run
+                              thin=2,
+                              chains=3)
+
+}
+## Inital results 
+
+# This step makes an empty raster #
+r <- raster(nrows=4*diff(ylim),ncols=4*diff(xlim),xmn=xlim[1],xmx=xlim[2],ymn=ylim[1],ymx=ylim[2])
+
+S <- vector('list',nBirds)
+
+for(i in 1:nBirds){
+  S[[i]] <- slices(type="intermediate",
+                   breaks="day",
+                   mcmc=fit[[i]],
+                   grid=r)
+}
+
+DATES <-  tm_breed <-tm_winter<-breed<-winter<- vector('list',nBirds)
+Aug31 <- Nov01  <- April1<- rep(NA,nBirds)
+
+# Create a vector of the Dates in the file - here we set rise=true because the data has both rise and sunset
+
+for(i in 1:nBirds){ 
+  DATES[[i]] <- S[[i]]$mcmc[[1]]$time[ which( S[[i]]$mcmc[[1]]$rise==TRUE) ]
+  
+  
+  # Here we specify our dates of interest. 
+  ReleaseDay<-1
+  Aug31[i]<-which(strptime(DATES[[i]],format="%Y-%m-%d")==as.POSIXct("2015-08-31"))
+  
+  
+  # Breeding 
+  # Get time when on the breeding grounds 
+  tm_breed[[i]]<-sliceInterval(S[[i]],k=c(ReleaseDay:Aug31[i]))
+  
+  
+  # "Slice" the data and save all dates between Release date and July 31 2011, and June 1 2012 until capture.
+  breed[[i]]<-slice(S[[i]],k=c(ReleaseDay:Aug31[i]))
+  
+  print(BirdId[i])
+  
+  plot(BTBWdist,col="gray74")
+  
+  plot(breed[[i]],useRaster=TRUE,
+       axes=FALSE, add=TRUE,
+       legend=FALSE,
+       col=rev(bpy.colors(50)),
+       cex.axis=0.7)
+  
+  plot(Americas,border="gray",add=TRUE)
+  
+  # Non-breeding 
+  
+  Nov01[i] <- which(strptime(DATES[[i]],format="%Y-%m-%d")==as.POSIXct("2015-12-01"))
+  April1[i] <- which(strptime(DATES[[i]],format="%Y-%m-%d")==as.POSIXct("2016-04-01"))
+  
+  tm_winter[[i]]<- sliceInterval(S[[i]],k=c(Nov01[i]:April1[i]))
+  
+  # "Slice" data and merge between Nov 01 2014 and Feb 31 2015.
+  winter[[i]]<- slice(S[[i]],k=c(Nov01[[i]],April1[[i]]))
+  
+  #plot(BTBWdist,border="black",ylim=ylim,xlim=xlim)
+  plot(winter[[i]],useRaster=TRUE,add=TRUE,
+       axes=FALSE,
+       legend=FALSE,
+       col=rev(bpy.colors(50)),
+       cex.axis=0.7)
+  
+  plot(SpatialPoints(cbind(CapLocs[i,1],CapLocs[i,2])),add=TRUE,pch=19,cex=1.5)
+  box()
+} 
+
+
+scaledWinter<-scaledBreeding<-vector('list',nBirds)
+for(i in 1:nBirds){
+scaledBreeding[[i]]<-breed[[i]]/cellStats(breed[[i]],max)
+scaledWinter[[i]]<-winter[[i]]/cellStats(winter[[i]],max)
+}
+
+scaledBreeding<-stack(scaledBreeding)
+scaledWinter<-stack(scaledWinter)
+
+sumBirdsBreed_btbw<-sum(scaledBreeding,na.rm=TRUE)
+sumBirdsWinter_btbw<-sum(scaledWinter,na.rm=TRUE)
+
+sumBirdsBreed_btbw[sumBirdsBreed_btbw==0]<-NA
+
+E<-sumBirdsBreed_btbw/nBirds
+
+prOrigin<-sumBirdsWinter_btbw/4
+
+MC_btbw<-(cellStats(prOrigin,max) - 1/nBirds) / (1 - 1/nBirds) 
+
+
+
+
+#########################################################################
+#   OVENBIRDS
+#########################################################################
+
+OVENdist<-shapefile("Spatial_Layers/OVENdist.shp")
+OVENdist<-gUnaryUnion(OVENdist, id = NULL)
+
+# Read in the data from LUX files 
+OVEN_HBEF<-list.files("Data/GLdata/OVEN/LigFiles", pattern = ".lig", full.names = TRUE)
+
+OVENnames<-list.files("Data/GLdata/OVEN/LigFiles",pattern = ".lig")
+
+# Read just the file names for Bird ID
+BirdId<- list.files("Data/GLdata/OVEN/LigFiles", pattern = ".lig")
+
+# Determine the number of birds
+nBirds<-length(BirdId)
+
+# Read in the lux file
+OVENdata<-vector('list',nBirds)
+
+# Loop through all the files and read them in as LUX files #
+for(i in 1:nBirds){
+  OVENdata[[i]] <- readLig(OVEN_HBEF[i],skip=1)  
+}
+
+head(OVENdata[[1]])
+
+# Set the capture coordinates for each bird #
+CapLocs<-array(NA,c(nBirds,2))
+
+# give row names the same as the OVEN names files to keep everything organized.
+rownames(CapLocs)<-OVENnames
+
+# Capture locations
+CapLocs<- cbind(-71.73,43.94)
+
+# Defining Twilights
+tm<-rise<-vector('list',nBirds)
+
+for(i in 1:nBirds){
+  tm[[i]] <- seq(from = OVENdata[[i]][1,2], 
+                 to = OVENdata[[i]][nrow(OVENdata[[i]]),2], 
+                 by = "day")
+  
+  rise[[i]] <- rep(c(TRUE, FALSE), length(tm[[i]]))
+}
+
+# making predicted twilight times given location and zenith #
+cal.dat<-vector('list',nBirds)
+
+for(i in 1:nBirds){
+  cal.dat[[i]] <- data.frame(Twilight = twilight(rep(tm[[i]], each = 2),
+                                                 lon = CapLocs[1], 
+                                                 lat = CapLocs[2], 
+                                                 rise = rise[[i]], zenith = 94),
+                             Rise = rise[[i]]) 
+}
+
+twl<-vector('list',nBirds)
+for(i in 1:nBirds){
+twl[[i]]<-readRDS(paste0("Data/GLdata/OVEN/twilightFiles/","NH_",BirdId[[i]],".rds"))
+}
+
+# Create a vector with the dates known to be at deployment #
+calib.dates <- vector('list',nBirds)
+
+# Set the calibration dates to determine error in twilight times from civil twilight #
+# set year for the calibration # a few birds were captured in 2010. 
+year<-rep("2011-07-31",20)
+year[c(1,3,8)]<-"2010-07-31"
+
+for(i in 1:nBirds){
+  calib.dates[[i]] <- c(strptime(twl[[i]][1,1],format="%Y-%m-%d"),as.POSIXct(year[i]))
+}
+
+calibration.data<-vector('list',nBirds)
+
+for(i in 1:nBirds){
+  calibration.data[[i]]<-subset(twl[[i]],twl[[i]]$Twilight>=calib.dates[[i]][1] & twl[[i]]$Twilight<=calib.dates[[i]][2])
+}
+
+
+
+# Generate empty lists to store data 
+sun<-z<-twl_t<-twl_deviation<-fitml<-alpha<-vector('list',nBirds)
+
+# Determine the sun elevation angle - here called the Zenith angle #
+
+for(i in 1:nBirds){
+  
+  # Calculate solar time from calibration data 
+  sun[[i]]  <- solar(calibration.data[[i]][,1])
+  
+  # Adjust the solar zenith angle for atmospheric refraction
+  z[[i]] <- refracted( zenith(sun = sun[[i]],
+                              lon = CapLocs[1], 
+                              lat = CapLocs[2]))
+  
+  twl_t[[i]] <- twilight(tm = calibration.data[[i]][,1],
+                         lon = CapLocs[1], 
+                         lat = CapLocs[2], 
+                         rise = calibration.data[[i]][,2],
+                         zenith = quantile(z[[i]],probs=0.5))
+  
+  # Determine the difference in minutes from when the sun rose and the geolocator said it rose 
+  twl_deviation[[i]] <- ifelse(calibration.data[[i]]$Rise, as.numeric(difftime(calibration.data[[i]][,1], twl_t[[i]], units = "mins")),
+                               as.numeric(difftime(twl_t[[i]], calibration.data[[i]][,1], units = "mins")))
+  
+  # Throw out values less than 0 - These values are not valid 
+  twl_deviation[[i]]<-subset(twl_deviation[[i]], subset=twl_deviation[[i]]>=0)
+  
+  # Describe the distribution of the error 
+  fitml[[i]] <- fitdistr(twl_deviation[[i]], "log-Normal")
+  
+  # save the Twilight model parameters
+  alpha[[i]]<- c(fitml[[i]]$estimate[1], fitml[[i]]$estimate[2]) 
+}
+CapLocs_NB<-array(NA,c(16,2))
+
+twl_NB<-vector('list',16)
+twl_rds<-list.files(path = "D:/GL_wind",pattern="twl_",full.names=TRUE)
+for(i in 1:16){
+twl_NB[[i]]<-readRDS(twl_rds[i])
+}
+
+# Create an array for the long / lat where birds were captured
+CapLocs_NB[4:12,1]<- -77.93
+CapLocs_NB[4:12,2]<- 18.04
+CapLocs_NB[1:3,1]<- -80.94
+CapLocs_NB[1:3,2]<- 25.13
+CapLocs_NB[13:16,1]<- -66.86
+CapLocs_NB[13:16,2]<- 17.97
+
+plot(OVENdist,col="gray",border="gray")
+plot(Americas,add=TRUE)
+points(CapLocs_NB,cex=1.5,pch=19)
+
+
+head(twl_NB[[13]])
+
+
+end.date_NB<-c(rep("2011-04-15",3),
+                   "2011-04-15",
+               rep("2010-04-15",2),
+               rep("2011-04-15",4),
+                   "2010-04-15",
+                   "2011-04-15",
+               rep("2012-04-15",4))
+               
+               
+
+# Create a vector with the dates known to be at deployment #
+calib.dates_NB <- vector('list',16)
+
+for(i in 1:16){
+  calib.dates_NB[[i]] <- c(strptime(twl_NB[[i]][1,1],format="%Y-%m-%d"),as.POSIXct(end.date_NB[i]))
+}
+
+calibration.data_NB<-vector('list',16)
+
+for(i in 1:16){
+  calibration.data_NB[[i]]<-subset(twl_NB[[i]],twl_NB[[i]]$Twilight>=calib.dates_NB[[i]][1] & twl_NB[[i]]$Twilight<=calib.dates_NB[[i]][2])
+}
+
+
+
+# Generate empty lists to store data 
+sun_NB<-z_NB<-twl_t_NB<-twl_deviation_NB<-fitml_NB<-alpha_NB<-vector('list',16)
+
+# Determine the sun elevation angle - here called the Zenith angle #
+
+for(i in 1:16){
+  
+  # Calculate solar time from calibration data 
+  sun_NB[[i]]  <- solar(calibration.data_NB[[i]][,1])
+  
+  # Adjust the solar zenith angle for atmospheric refraction
+  z_NB[[i]] <- refracted( zenith(sun = sun_NB[[i]],
+                              lon = CapLocs_NB[i,1], 
+                              lat = CapLocs_NB[i,2]))
+  
+  twl_t_NB[[i]] <- twilight(tm = calibration.data_NB[[i]][,1],
+                         lon = CapLocs_NB[i,1], 
+                         lat = CapLocs_NB[i,2], 
+                         rise = calibration.data_NB[[i]][,2],
+                         zenith = quantile(z_NB[[i]],probs=0.5))
+  
+  # Determine the difference in minutes from when the sun rose and the geolocator said it rose 
+  twl_deviation_NB[[i]] <- ifelse(calibration.data_NB[[i]]$Rise, as.numeric(difftime(calibration.data_NB[[i]][,1], twl_t_NB[[i]], units = "mins")),
+                               as.numeric(difftime(twl_t_NB[[i]], calibration.data_NB[[i]][,1], units = "mins")))
+  
+  # Throw out values less than 0 - These values are not valid 
+  twl_deviation_NB[[i]]<-subset(twl_deviation_NB[[i]], subset=twl_deviation_NB[[i]]>=0)
+  
+  # Describe the distribution of the error 
+  fitml_NB[[i]] <- fitdistr(twl_deviation_NB[[i]], "log-Normal")
+  
+  # save the Twilight model parameters
+  alpha_NB[[i]]<- c(fitml_NB[[i]]$estimate[1], fitml_NB[[i]]$estimate[2]) 
+}
+
+alpha
+alpha_NB
+
+meanBalpha<-c(mean(unlist(lapply(alpha,function(x) x[1]))),mean(unlist(lapply(alpha,function(x) x[2]))))
+meanNBalpha<-c(mean(unlist(lapply(alpha_NB,function(x) x[1]))),mean(unlist(lapply(alpha_NB,function(x) x[2]))))
+names(meanBalpha)<-names(meanNBalpha)<-names(alpha[[1]])
+
+
+
+winterZ<-quantile(unlist(z_NB),probs=0.5)
+print("Breeding Zenith Angle")
+median(unlist(z))
+print("Non-breeding Zenith Angle")
+median(unlist(z_NB))
+
+
+b<-unlist(twl_deviation)
+b[b>400]<-NA
+
+cols<-c("red","blue","green","yellow","orange","purple","brown","gray","black","pink")
+seq <- seq(0,60, length = 100)
+par(mfrow=c(1,2),mar=c(4,4,0,0))
+hist(b, freq = F,
+     yaxt="n",
+     ylim = c(0, 0.15),
+     xlim = c(0, 60),
+     breaks=15,
+     col="gray",
+     main = "",
+     xlab = "Twilight error (mins)")
+axis(2,las=2)
+for(i in 1:nBirds){
+  lines(seq, dlnorm(seq, alpha[[i]][1], alpha[[i]][2]), col = cols[i], lwd = 3, lty = 2)
+}
+
+#Zenith angle plot
+par(bty="l")
+plot(median(z[[1]],na.rm=TRUE),xlim=c(1,nBirds),ylim=c(80,100),pch=19,ylab="Zenith Angle",xlab="OVEN",col=cols[1])
+segments(1,quantile(z[[1]],probs=0.025),1,quantile(z[[1]],probs=0.975),col=cols[1])
+for(i in 2:nBirds){
+  par(new = TRUE)
+  plot(median(z[[i]],na.rm=TRUE)~i,xlim=c(1,nBirds),ylim=c(80,100),pch=19,yaxt="n",xaxt="n",ylab="",xlab="",col=cols[i])
+  segments(i,quantile(z[[i]],probs=0.025),i,quantile(z[[i]],probs=0.975),col=cols[i])
+}
+
+# Create empty vectors to store objects #
+d.twl<-path<-vector('list',nBirds)
+
+zenith0<-zenith1<-rep(NA,nBirds)
+
+# loop through the birds #
+for(i in 1:nBirds){
+  # Store the zenith (sun-elevation angle)
+  zenith0[i] <-quantile(z[[i]],prob=0.5)
+  zenith1[i]<-quantile(z[[i]],prob=0.95)
+}
+
+# subset the twilight file for dates after the first calibration date (presumably the deployment date)  
+# and exclude points that were deleted  
+# note we didn't delete any transitions here
+
+for(i in 1:nBirds){  
+  d.twl[[i]]<-subset(twl[[i]],twl[[i]]$Twilight>=calib.dates[[i]][1] & !Deleted)
+  
+  path[[i]] <- thresholdPath(twilight = d.twl[[i]]$Twilight,
+                             rise = d.twl[[i]]$Rise,
+                             zenith = zenith1[i],
+                             tol = 0)
+}
+
+
+x0 <- z0 <- vector('list',nBirds)
+
+for(i in 1:nBirds){
+  # Take the location estimates created above
+  x0[[i]]<- path[[i]]$x
+  
+  # the model also needs the mid-points - generate those here
+  z0[[i]]<- trackMidpts(x0[[i]])
+}
+
+beta <- c(0.7, 0.08)
+
+fixedx <- vector('list',nBirds)
+
+for(i in 1:nBirds){
+  fixedx[[i]]<- rep(FALSE, nrow(x0[[i]]))
+  
+  fixedx[[i]][c(1:10,(nrow(x0[[i]])-3):nrow(x0[[i]]))] <- TRUE
+  
+  x0[[i]][fixedx[[i]], 1] <- CapLocs[1]
+  x0[[i]][fixedx[[i]], 2] <- CapLocs[2]
+  
+  z0[[i]] <- trackMidpts(x0[[i]]) # update z0 positions
+}
+
+
+## Function to construct a land/sea mask
+distribution.mask <- function(xlim, ylim, n = 4, land = TRUE, shape) {
+  r <- raster(nrows = n * diff(ylim), ncols = n * diff(xlim), xmn = xlim[1], 
+              xmx = xlim[2], ymn = ylim[1], ymx = ylim[2], crs = proj4string(shape))
+  r <- cover(rasterize(shape, shift = c(-360, 0), r, 1, silent = TRUE), 
+             rasterize(shape, r, 1, silent = TRUE), rasterize(shape, r, 1, silent = TRUE))
+  r <- as.matrix(is.na(r))[nrow(r):1, ]
+  if (land) 
+    r <- !r
+  xbin <- seq(xlim[1], xlim[2], length = ncol(r) + 1)
+  ybin <- seq(ylim[1], ylim[2], length = nrow(r) + 1)
+  
+  function(p) {
+    r[cbind(.bincode(p[, 2], ybin), .bincode(p[, 1], xbin))]
+  }
+}
+
+WGS84<-"+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+crs(Americas)<-WGS84
+crs(OVENdist)<-WGS84
+
+xlim=c(-100,-60)
+ylim=c(0,55)
+
+## Define mask for Ovenbird distribution
+is.dist <- distribution.mask(shape=OVENdist,
+                             xlim = xlim,
+                             ylim = ylim,
+                             n = 4,
+                             land = TRUE)
+
+# Define the log prior for x and z
+log.prior <- function(p) {
+  f <- is.dist(p)
+  ifelse(f | is.na(f), 0, -10)
+}
+
+
+# Define the threshold model - slimilar to above #
+model <-  vector('list', nBirds)
+
+# Set up changes in alpha and zenith angles here between breeding and non-breeding # 
+# first - find the dates you want to change #
+# I want the values to change from breeding to non-breeding on Nov1 and change back on April1 # 
+
+November01<-rep("2011-11-01",20)
+November01[c(1,3,8)]<-"2010-11-01"
+Apr1<-rep("2012-04-01",20)
+Apr1[c(1,3,8)]<-"2011-04-01"
+
+which(strptime(path[[4]]$time,format="%Y-%m-%d")=="2012-04-01")
+
+winterZ<-quantile(unlist(z_NB),probs=0.95)
+
+alphaBoth<-zenithBoth<-vector('list',20)
+
+for(i in 1:nBirds){
+
+alphaBoth[[i]]<-cbind(rep(alpha[[i]][1],length(path[[i]]$time)),rep(alpha[[i]][2],length(path[[i]]$time)))
+zenithBoth[[i]]<-rep(zenith1[[i]],length(path[[i]]$time))
+
+alphaBoth[[i]][which(strptime(path[[i]]$time,format="%Y-%m-%d")==November01[i])[1]:
+               which(strptime(path[[i]]$time,format="%Y-%m-%d")==Apr1[i])[1],1]<-meanNBalpha[1]
+alphaBoth[[i]][which(strptime(path[[i]]$time,format="%Y-%m-%d")==November01[i])[1]:
+               which(strptime(path[[i]]$time,format="%Y-%m-%d")==Apr1[i])[1],2]<-meanNBalpha[2]
+
+zenithBoth[[i]][which(strptime(path[[i]]$time,format="%Y-%m-%d")==November01[i])[1]:
+               which(strptime(path[[i]]$time,format="%Y-%m-%d")==Apr1[i])[1]]<-winterZ
+}
+
+for(i in 1:nBirds){
+  model[[i]]<- thresholdModel(twilight = d.twl[[i]]$Twilight,
+                              rise = d.twl[[i]]$Rise,
+                              twilight.model = "ModifiedLogNormal",
+                              alpha = alphaBoth[[i]],
+                              beta = beta,
+                              # Here is where we set the constraints for land
+                              logp.x = log.prior, logp.z = log.prior, 
+                              x0 = x0[[i]],
+                              z0 = z0[[i]],
+                              zenith = zenithBoth[[i]],
+                              fixedx = fixedx[[i]])
+}
+
+
+# This defines the error distribution around each location #
+proposal.x <- proposal.z <- vector('list',nBirds)
+
+for(i in 1:nBirds){
+  proposal.x[[i]] <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(x0[[i]]))
+  proposal.z[[i]] <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(z0[[i]]))
+}
+
+fit <- vector('list', nBirds)
+
+for(i in 1:nBirds){
+  
+  fit[[i]] <- estelleMetropolis(model = model[[i]],
+                                proposal.x = proposal.x[[i]],
+                                proposal.z = proposal.z[[i]],
+                                iters = 10000, # This value sets the number of iterations to run
+                                thin = 1,
+                                chains = 3)
+
+### Fine Tuning 
+
+proposal.x[[i]] <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(x0[[i]]))
+proposal.z[[i]] <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(z0[[i]]))
+
+fit[[i]] <- estelleMetropolis(model = model[[i]],
+                              proposal.x = proposal.x[[i]],
+                              proposal.z = proposal.z[[i]],
+                              x0 = chainLast(fit[[i]]$x),
+                              z0 = chainLast(fit[[i]]$z),
+                              iters=10000, # This value sets the number of iterations to run
+                              thin=2,
+                              chains=3)
+
+# Final Run
+
+proposal.x[[i]] <- mvnorm(chainCov(fit[[i]]$x),s=0.1)
+proposal.z[[i]] <- mvnorm(chainCov(fit[[i]]$z),s=0.1)
+
+# Note the increase in number of interations - this takes a bit longer to run
+fit[[i]] <- estelleMetropolis(model = model[[i]],
+                              proposal.x = proposal.x[[i]],
+                              proposal.z = proposal.z[[i]],
+                              x0=chainLast(fit[[i]]$x),
+                              z0=chainLast(fit[[i]]$z),
+                              iters=5000,  # This value sets the number of iterations to run
+                              thin=2,
+                              chains=3)
+
+}
+## Inital results 
+
+# This step makes an empty raster #
+r <- raster(nrows=4*diff(ylim),ncols=4*diff(xlim),xmn=xlim[1],xmx=xlim[2],ymn=ylim[1],ymx=ylim[2])
+
+S <- vector('list',nBirds)
+
+for(i in 1:nBirds){
+  S[[i]] <- slices(type="intermediate",
+                   breaks="day",
+                   mcmc=fit[[i]],
+                   grid=r)
+}
+
+DATES <-  tm_breed <-tm_winter<-breed<-winter<- vector('list',nBirds)
+Aug31 <- Nov01  <- April1<- rep(NA,nBirds)
+
+year<-rep("2011-07-31",20)
+year[c(1,3,8)]<-"2010-07-31"
+
+yearAug1<-rep("2011-08-01",20)
+yearAug1[c(1,3,8)]<-"2010-08-01"
+yearNov1<-rep("2011-11-01",20)
+yearNov1[c(1,3,8)]<-"2010-11-01"
+yearApril1<-rep("2012-04-01",20)
+yearApril1[c(1,3,8)]<-"2011-04-01"
+
+# Create a vector of the Dates in the file - here we set rise=true because the data has both rise and sunset
+
+for(i in 1:nBirds){ 
+  DATES[[i]] <- S[[i]]$mcmc[[1]]$time[ which( S[[i]]$mcmc[[1]]$rise==TRUE) ]
+  
+  
+  # Here we specify our dates of interest. 
+  ReleaseDay<-1
+  Aug31[i]<-which(strptime(DATES[[i]],format="%Y-%m-%d")==as.POSIXct(yearAug1[i]))
+  
+  
+  # Breeding 
+  # Get time when on the breeding grounds 
+  tm_breed[[i]]<-sliceInterval(S[[i]],k=c(ReleaseDay:Aug31[i]))
+  
+  
+  # "Slice" the data and save all dates between Release date and July 31 2011, and June 1 2012 until capture.
+  breed[[i]]<-slice(S[[i]],k=c(ReleaseDay:Aug31[i]))
+  
+  print(BirdId[i])
+  
+  plot(OVENdist,col="gray74")
+  
+  plot(breed[[i]],useRaster=TRUE,
+       axes=FALSE, add=TRUE,
+       legend=FALSE,
+       col=rev(bpy.colors(50)),
+       cex.axis=0.7)
+  
+  plot(Americas,border="gray",add=TRUE)
+  
+  # Non-breeding 
+  
+  Nov01[i] <- which(strptime(DATES[[i]],format="%Y-%m-%d")==as.POSIXct(yearNov1[i]))
+  April1[i] <- which(strptime(DATES[[i]],format="%Y-%m-%d")==as.POSIXct(yearApril1[i]))
+  
+  tm_winter[[i]]<- sliceInterval(S[[i]],k=c(Nov01[i]:April1[i]))
+  
+  # "Slice" data and merge between Nov 01 2014 and Feb 31 2015.
+  winter[[i]]<- slice(S[[i]],k=c(Nov01[[i]],April1[[i]]))
+  
+  #plot(OVENdist,border="black",ylim=ylim,xlim=xlim)
+  plot(winter[[i]],useRaster=TRUE,add=TRUE,
+       axes=FALSE,
+       legend=FALSE,
+       col=rev(bpy.colors(50)),
+       cex.axis=0.7)
+  
+  plot(SpatialPoints(cbind(CapLocs[1],CapLocs[2])),add=TRUE,pch=19,cex=1.5)
+  box()
+} 
+
+
+scaledWinter<-scaledBreeding<-vector('list',nBirds)
+for(i in 1:nBirds){
+scaledBreeding[[i]]<-breed[[i]]/cellStats(breed[[i]],max)
+scaledWinter[[i]]<-winter[[i]]/cellStats(winter[[i]],max)
+}
+
+scaledBreeding<-stack(scaledBreeding)
+scaledWinter<-stack(scaledWinter)
+
+sumBirdsBreed<-sum(scaledBreeding,na.rm=TRUE)
+sumBirdsWinter<-sum(scaledWinter,na.rm=TRUE)
+
+sumBirdsBreed[sumBirdsBreed==0]<-NA
+
+E<-sumBirdsBreed/nBirds
+
+prOrigin<-sumBirdsWinter/4
+
+MC_btbw<-(cellStats(prOrigin,max) - 1/nBirds) / (1 - 1/nBirds) 
+
+
+
+
+
+
+
+
+
+
 
 Year<-1998:2015
 nYears<-length(Year)
@@ -88,10 +1045,11 @@ for(i in 1:12){
 #        3 = Jamaica
 #        4 = Hisp
 
-winterRain<-AprilRain<-array(NA,c(18,4))
+winterRain<-AprilRain<-MarchRain<-array(NA,c(18,4))
 for(i in 1:4){
 winterRain[,i]<-apply(rain[c(1,2,3,4),2:19,i],2,sum)
 AprilRain[,i]<-totalRain[4,1:18,i]
+MarchRain[,i]<-totalRain[3,1:18,i]
 }
 
 
@@ -625,3 +1583,12 @@ for(i in 1:length(BTBWyr)){
   BTBWpropSY[i]<-table(subset(BTBWdata$AgeInital,BTBWdata$Year==BTBWyr[i]))[9]/sum(table(subset(BTBWdata$AgeInital,BTBWdata$Year==BTBWyr[i]))[c(4,9)])  
 }
 
+par(bty="l",mfrow=c(2,2))
+plot(BTBWpropSY~MarchRain[2:18,1],pch=19,ylim=c(0,1),main="Puerto Rico",xlab="Precipitation")
+text(x=MarchRain[2:18,1],y=BTBWpropSY-0.025,labels=BTBWyr,cex=0.7)
+plot(BTBWpropSY~MarchRain[2:18,2],pch=19,ylim=c(0,1),main="Cuba",xlab="Precipitation")
+text(x=MarchRain[2:18,2],y=BTBWpropSY-0.025,labels=BTBWyr,cex=0.7)
+plot(BTBWpropSY~MarchRain[2:18,3],pch=19,ylim=c(0,1),main="Jamaica",xlab="Precipitation")
+text(x=MarchRain[2:18,3],y=BTBWpropSY-0.025,labels=BTBWyr,cex=0.7)
+plot(BTBWpropSY~MarchRain[2:18,4],pch=19,ylim=c(0,1),main="Hispainola",xlab="Precipitation")
+text(x=MarchRain[2:18,4],y=BTBWpropSY-0.025,labels=BTBWyr,cex=0.7)
