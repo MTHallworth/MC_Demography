@@ -1,3 +1,6 @@
+
+.libPaths("D:/Google_Drive/Hallworth_R_Library")
+
 library(raster)
 library(rgdal)
 library(sp)
@@ -927,8 +930,18 @@ for(i in 1:nBirds){
   box()
 } 
 
+par(mar=c(0,0,0,0),mfrow=c(2,2))
+for(i in 1:4){
+plot(winterIslands,col="lightgray")
+plot(mask(winter[[i]],winterIslands),add=TRUE,legend=FALSE,col=rev(bpy.colors(10)))
+box()
+}
+
+
 
 scaledWinter<-scaledBreeding<-vector('list',nBirds)
+plot(sum(scaledWinter,na.rm=TRUE))
+
 for(i in 1:nBirds){
 scaledBreeding[[i]]<-breed[[i]]/cellStats(breed[[i]],max)
 scaledWinter[[i]]<-winter[[i]]/cellStats(winter[[i]],max)
@@ -944,19 +957,38 @@ sumBirdsBreed[sumBirdsBreed==0]<-NA
 
 E<-sumBirdsBreed/nBirds
 
-prOrigin<-sumBirdsWinter/4
+prOrigin<-sumBirdsWinter/nBirds
 
-MC_btbw<-(cellStats(prOrigin,max) - 1/nBirds) / (1 - 1/nBirds) 
+MC_oven<-(cellStats(prOrigin,max) - 1/nBirds) / (1 - 1/nBirds) 
+cbind(MC_btbw,MC_oven)
+
+OVENprOrigin<-prOrigin
+
+OVENprOrigin[OVENprOrigin==0]<-NA
+
+OVENpts<-rasterToPoints(OVENprOrigin)
+
+BTBWpts<-rasterToPoints(prOrigin)
+
+plot(winterIslands)
+plot(Americas,add=TRUE,col="lightgray")
+plot(mask(prOrigin,winterIslands),add=TRUE,legend=FALSE)
+plot(Americas,add=TRUE)
 
 
 
+############################################################################################################
+#
+#
+# Non-breeding location - Rain
+#
+#
+############################################################################################################
+MC_BTBW<-raster("Data/BTBW_MC.grd")
+MC_OVEN<-raster("Data/OVEN_MC.grd")
 
-
-
-
-
-
-
+BTBWpts<-rasterToPoints(MC_BTBW)
+OVENpts<-rasterToPoints(MC_OVEN)
 
 Year<-1998:2015
 nYears<-length(Year)
@@ -1017,11 +1049,63 @@ rain<-array(NA,c(12,19,4))
 months<-c(stack(Jan),stack(Feb),stack(Mar),stack(Apr),stack(May),stack(Jun),
           stack(Jul),stack(Aug),stack(Sep),stack(Oct),stack(Nov),stack(Dec))
 
+sampleYear<-sum(Nov[[1]],Dec[[1]],stack(Jan[[1]],Feb[[1]],Mar[[1]],Apr[[1]]))
+
+CUBelev<-getData('alt',country="CUB")
+PRelev<-getData('alt',country="PRI")
+DOMelev<-getData('alt',country="DOM")
+HAIelev<-getData('alt',country="HTI")
+JAMelev<-getData('alt',country="JAM")
+
+WIelev<-merge(DOMelev,HAIelev,JAMelev,CUBelev,PRelev)
+WLhs<-hillShade(terrain(WIelev,"slope"),terrain(WIelev,'aspect'),angle=45,degree=10)
+winterIslands<-gUnion(gUnion(gUnion(Cuba,Jamaica),Hisp),PR)
+
+
+PrecipBreaks<-seq(0,1800,)
+
+
+col<-colorRampPalette(c("transparent", # clear - no color 
+                        rgb(238,233,233,alpha=175,maxColorValue =255),
+                        rgb(135,206,235,alpha=175,maxColorValue = 255), # skyblue
+                        rgb(173,216,230,alpha=175,maxColorValue = 255), # lightblue
+                        rgb(0,0,255,alpha=175,maxColorValue = 255),     # blue
+                        rgb(75,255,255,alpha=175,maxColorValue = 255), # lightcyan
+                        rgb(0,255,255,alpha=175,maxColorValue = 255),     # cyan
+                        rgb(0,139,139,alpha=175,maxColorValue = 255),     # darkcyan
+                        rgb(255,255,0,alpha=175,maxColorValue = 255),     # yellow
+                        rgb(255,173,14,alpha=175,maxColorValue = 255),    # yellowish
+                        rgb(255,165,0,alpha=175,maxColorValue = 255),     # orange
+                        rgb(255,69,0,alpha=175,maxColorValue = 255),     # orangered
+                        rgb(255,0,0,alpha=175,maxColorValue = 255),     # red
+                        rgb(139,0,0,alpha=175,maxColorValue = 255),     # darkred
+                        rgb(176,48,96,alpha=175,maxColorValue = 255)),   # maroon
+                       
+alpha=TRUE)
+empty<-raster(nrow=1800,ncol=1)
+values(empty)<-1:1800
+
+crop(sampleYear,winterIslands)
+par(mar=c(4,0,0,0),bty="n")
+plot(winterIslands,axes=FALSE)
+plot(Americas,add=TRUE,col="gray")
+plot(sampleYear,add=TRUE,breaks=PrecipBreaks,col=col(length(PrecipBreaks)),legend=FALSE)
+plot(empty,legend.only=TRUE,breaks=PrecipBreaks,col=col(length(PrecipBreaks)),horizontal=TRUE,
+     legend.width=0.25, legend.shrink=0.75,
+     axis.args=list(at=seq(0,1800, 50),
+                    labels=seq(0, 1800, 50), 
+                    cex.axis=0.8),
+     legend.args=list(text='Precipitation (mm)', side=1,line=1.9,font=2))
+plot(Americas,border="black",add=TRUE,lwd=3)
+
+plot(Hisp)
+plot(WLhs,add=TRUE)
+
 year<-c(1998:2015)
 
 place<-c(PR,Cuba,Jamaica,Hisp)
 
-totalRain<-array(NA,c(12,18,4))
+totalRain<-SDrain<-array(NA,c(12,18,4))
 
 for(i in 1:12){
   for(p in 1:4){
@@ -1033,9 +1117,85 @@ for(i in 1:12){
       rain[i,y+1,p]<-extract(months[[i]][[y]],place[[p]],fun=mean)-rain[i,1,p]
       #totalRain
       totalRain[i,y,p]<-extract(months[[i]][[y]],place[[p]],fun=mean)
+      SDrain[i,y,p]<-extract(months[[i]][[y]],place[[p]],fun=sd)
     }
   }
 }
+
+winterRAINstack<-vector('list',17)
+for(i in 2:18){
+winterRAINstack[[i-1]]<-stack(Nov[[i-1]],Dec[[i-1]],Jan[[i]],Feb[[i]],Mar[[i]],Apr[[i]])
+}
+
+BTBWweightRain<-array(NA,c(nrow(BTBWpts),12,17))
+OVENweightRain<-array(NA,c(nrow(OVENpts),12,17))
+for(i in 1:17){
+BTBWweightRain[,,i]<-extract(winterRAINstack[[i]],cbind(BTBWpts[,1:2]))
+OVENweightRain[,,i]<-extract(winterRAINstack[[i]],cbind(OVENpts[,1:2]))
+}
+
+WeightedRain<-array(NA,c(17,5,2))
+rownames(WeightedRain)<-c(1999:2015)
+colnames(WeightedRain)<-c("TotalWinter","SD","MinimumMonth","March","April")
+for(i in 1:17){
+WeightedRain[i,1,2]<-mean(apply(BTBWweightRain[,c(11,12,1,2,3,4),i],1,sum),weight=BTBWpts[,3])
+WeightedRain[i,2,2]<-mean(apply(BTBWweightRain[,c(11,12,1,2,3,4),i],1,sd),weight=BTBWpts[,3])
+WeightedRain[i,3,2]<-mean(BTBWweightRain[,2,i],weight=BTBWpts[,3])
+WeightedRain[i,4,2]<-mean(BTBWweightRain[,3,i],weight=BTBWpts[,3])
+WeightedRain[i,5,2]<-mean(BTBWweightRain[,4,i],weight=BTBWpts[,3])
+WeightedRain[i,1,1]<-mean(apply(OVENweightRain[,c(11,12,1,2,3,4),i],1,sum,na.rm=TRUE),weight=OVENpts[,3])
+WeightedRain[i,2,1]<-mean(apply(OVENweightRain[,c(11,12,1,2,3,4),i],1,sd,na.rm=T),weight=OVENpts[,3],na.rm=T)
+WeightedRain[i,3,1]<-mean(OVENweightRain[,2,i],weight=OVENpts[,3],na.rm=TRUE)
+WeightedRain[i,4,1]<-mean(OVENweightRain[,3,i],weight=OVENpts[,3],na.rm=TRUE)
+WeightedRain[i,5,1]<-mean(OVENweightRain[,4,i],weight=OVENpts[,3],na.rm=TRUE)
+}
+
+col2rgb("brown")
+plot(BTBWwinterWeight,pch=19,cex=1.25,type="o",ylim=c(500,900))
+polygon(c(1:17,17:1),c(BTBWwinterWeight-BTBWweightedSD,rev(BTBWwinterWeight+BTBWweightedSD)),col=rgb(1,0,0,0.5),border="lightgray")
+polygon(c(1:17,17:1),c(OVENwinterWeight-OVENweightedSD,rev(OVENwinterWeight+OVENweightedSD)),col=rgb(165,42,42,175,maxColorValue=255),border=rgb(165,42,42,175,maxColorValue=255))
+par(new=TRUE)
+plot(BTBWwinterWeight,pch=19,cex=1.25,type="o",ylim=c(500,900),axes=F,ylab="",xlab="")
+par(new=TRUE)
+plot(OVENwinterWeight,pch=19,cex=1.25,type="o",ylim=c(500,900))
+
+PRmean<-apply(totalRain[,,1],1,mean)
+PRse<-apply(totalRain[,,1],1,sd)/sqrt(18)
+Hispmean<-apply(totalRain[,,4],1,mean)
+Hispse<-apply(totalRain[,,1],1,sd)/sqrt(18)
+Cubamean<-apply(totalRain[,,2],1,mean)
+Cubase<-apply(totalRain[,,2],1,sd)/sqrt(18)
+Jammean<-apply(totalRain[,,3],1,mean)
+Jamse<-apply(totalRain[,,3],1,sd)/sqrt(18)
+
+barCenters<-barplot(PRmean[c(10:12,1:9)],
+                    ylim=c(0,300),ylab="Precipitation (mm)",yaxt="n",
+                    names.arg=c("Oct","Nov","Dec","Jan","Feb","Mar","Apr","May","June","July","Aug","Sept"))
+axis(2,las=2)
+segments(barCenters,(PRmean[c(10:12,1:9)]-PRse[c(10:12,1:9)]),barCenters,(PRmean[c(10:12,1:9)]+PRse[c(10:12,1:9)]))
+
+barCenters<-barplot(Hispmean[c(10:12,1:9)],
+                    ylim=c(0,300),ylab="Precipitation (mm)",yaxt="n",
+                    names.arg=c("Oct","Nov","Dec","Jan","Feb","Mar","Apr","May","June","July","Aug","Sept"))
+axis(2,las=2)
+segments(barCenters,(Hispmean[c(10:12,1:9)]-Hispse[c(10:12,1:9)]),barCenters,(Hispmean[c(10:12,1:9)]+Hispse[c(10:12,1:9)]))
+
+barCenters<-barplot(Cubamean[c(10:12,1:9)],
+                    ylim=c(0,300),ylab="Precipitation (mm)",yaxt="n",
+                    names.arg=c("Oct","Nov","Dec","Jan","Feb","Mar","Apr","May","June","July","Aug","Sept"))
+axis(2,las=2)
+segments(barCenters,(Cubamean[c(10:12,1:9)]-Cubase[c(10:12,1:9)]),barCenters,(Cubamean[c(10:12,1:9)]+Cubase[c(10:12,1:9)]))
+
+barCenters<-barplot(Jammean[c(10:12,1:9)],
+                    ylim=c(0,300),ylab="Precipitation (mm)",yaxt="n",
+                    names.arg=c("Oct","Nov","Dec","Jan","Feb","Mar","Apr","May","June","July","Aug","Sept"))
+axis(2,las=2)
+segments(barCenters,(Jammean[c(10:12,1:9)]-Jamse[c(10:12,1:9)]),barCenters,(Jammean[c(10:12,1:9)]+Jamse[c(10:12,1:9)]))
+
+
+
+
+
 
 
 
@@ -1047,11 +1207,23 @@ for(i in 1:12){
 
 winterRain<-AprilRain<-MarchRain<-array(NA,c(18,4))
 for(i in 1:4){
-winterRain[,i]<-apply(rain[c(1,2,3,4),2:19,i],2,sum)
+winterRain[,i]<-apply(totalRain[c(1,2,3,4),1:18,i],2,sum)
 AprilRain[,i]<-totalRain[4,1:18,i]
 MarchRain[,i]<-totalRain[3,1:18,i]
 }
 
+par(bty="l")
+plot(winterRain[,1],ylim=c(100,700),type="o",pch=19,cex=1.25,xaxt="n",yaxt="n",ylab="Precipitation (mm)",xlab="Non-breeding season")
+par(new=TRUE)
+plot(winterRain[,2],ylim=c(100,700),type="o",pch=17,cex=1.25,axes=FALSE,ylab="",xlab="")
+par(new=TRUE)
+plot(winterRain[,3],ylim=c(100,700),type="o",pch=16,cex=1.25,col="red",axes=FALSE,ylab="",xlab="")
+par(new=TRUE)
+plot(winterRain[,4],ylim=c(100,700),type="o",pch=8,cex=1.25,col="green",axes=FALSE,xlab="",ylab="")
+axis(2,las=2)
+axis(1,at=1:18,labels=c(1998:2015))
+
+plot(subset(Americas,(NAME=="Cuba" | NAME=="Jamaica" | NAME=="Puerto Rico" | NAME=="Dominican Republic" | NAME=="Haiti")))
 
 
 # Read in forest Loss in Km2
@@ -1060,6 +1232,19 @@ PRloss<-readRDS("Data/LossYearsPR.rds")
 CubaLoss<-readRDS("Data/LossYearsCuba.rds")
 JamaicaLoss<-readRDS("Data/LossYearsJam.rds")
 HispLoss<-readRDS("Data/LossYearsHisp.rds")
+
+forestloss<-raster("Data/lossyear.tif")
+islandsFL<-crop(forestloss,winterIslands)
+minFL<-aggregate(islandsFL,fact=4,fun=modal)
+crop(OVENprOrigin,islandsFL)
+zonal(islandsFL,crop(OVENprOrigin,islandsFL),fun=min)
+plot(minFL)
+
+
+forestloss
+lossOVEN<-extract(forestloss,cbind(OVENpts[,c(1:2)]),buffer=5000)
+
+hist(forestloss)
 
 # Create a Plot x Period x Replicate array of abundance for the species of interest #
 # this makes an empty 3 dimensional array - Plot x Period x Replicate that is filled with NAs #
@@ -1352,6 +1537,30 @@ Sys.time()
 #saveRDS(M,"Recruitment.rds")
 
 M<-readRDS("Data/recruitment.rds")
+
+##########################################################################################################################################
+#
+# NDVI
+#
+##############################################################################################################################################
+
+
+NDVIfiles<-list.files("Data/NDVI",full.names=TRUE)
+NDVI<-vector('list',length(NDVIfiles))
+for(i in 1:17){
+NDVI[[i]]<-raster(NDVIfiles[i])
+NDVI[[i]][NDVI[[i]]>1]<-NA
+NDVI[[i]]<-crop(NDVI[[i]],winterIslands)
+}
+
+NDVIyrs<-sdNDVI<-array(NA,c(17,2))
+for(i in 1:17){
+NDVIyrs[i,1]<-mean(extract(NDVI[[i]],cbind(OVENpts[,c(1:2)])),weight=OVENpts[,3],na.rm=TRUE)
+NDVIyrs[i,2]<-mean(extract(NDVI[[i]],cbind(BTBWpts[,c(1:2)])),weight=BTBWpts[,3],na.rm=TRUE)
+sdNDVI[i,1]<-sd(extract(NDVI[[i]],cbind(OVENpts[,c(1:2)])),na.rm=TRUE)
+sdNDVI[i,2]<-sd(extract(NDVI[[i]],cbind(BTBWpts[,c(1:2)])),na.rm=TRUE)
+}
+
 ############ Dail - Madsen fully parameterized ###################
 
 cat("
@@ -1378,19 +1587,47 @@ model {
 #  Priors
 #
 ##################################################################################################################
-for(s in 1:nspp){
 
-W[s] ~ dunif(0.3,0.7)  # Apparent Survival 
+
+#SURVIVAL #
+# Priors and constraints
+for(t in 1:nyears){
+phi.spp[t]~dunif(0,1)
+}
+p.spp~dunif(0,1)
+
+for (i in 1:n){
+     for (t in First[i]:(n.occasions-1)){
+          phi[i,t]<-phi.spp[year[t]]
+          p.sur[i,t]<-p.spp
+         }#t
+      }#i
+
+# Likelihood
+for (i in 1:n){
+        z[i,First[i]]<-1
+    for (t in (First[i]+1):n.occasions){
+        # state process
+        z[i,t]~dbern(mu1[i,t])
+        mu1[i,t]<-phi[i,t-1]*z[i,t-1]
+        # Observation process
+        y.sur[i,t]~dbern(mu2[i,t])
+        mu2[i,t]<-p.sur[i,t-1]*z[i,t]
+      }#t
+     }#i
+
+for(s in 1:nspp){
+#W[s] ~ dunif(0.3,0.7)  # Apparent Survival 
 #Gamma[s] ~ dnorm(0,0.001) # Recruitment Rate
 pInt[s] ~ dnorm(0, 0.01)
 alpha[s]~dnorm(0,0.01)
 gam0[s]~ dnorm(0,0.01)
 
 
-for(r in 1:4){
-    gamApril[s,r]~dnorm(0,0.01)
-    gamTotal[s,r]~dnorm(0,0.01)
-    } # r
+    gamMin[s]~dnorm(0,0.01)
+    gamMar[s]~dnorm(0,0.01)
+    gamApr[s]~dnorm(0,0.01)
+    gamTotal[s]~dnorm(0,0.01)
 
 for (c in 1:ncovs){ 
       beta[s,c]~dnorm(0,0.01)
@@ -1440,20 +1677,15 @@ for(s in 1:nspp){                   # Species
     } #REPS
 
 for(t in 2:nyears){
-S[i,t-1,s] ~ dbin(W[s],N[i,t-1,s])    # Survival
+S[i,t-1,s] ~ dbin(phi.spp[t-1],N[i,t-1,s])    # Survival
 
 G[i,t-1,s] ~ dpois(Gamma[i,t-1,s]) # Recruits
 
 Gamma[i,t-1,s] <- exp(gam0[s]+gam1[t-1,s]*N[i,t-1,s]+
-                              gamApril[s,1]*AprilRain[t-1,1]+ # PuertoRico
-                              gamApril[s,2]*AprilRain[t-1,2]+ # Cuba
-                              gamApril[s,3]*AprilRain[t-1,3]+ # Jamaica
-                              gamApril[s,4]*AprilRain[t-1,4]+ # Hisp
-                              gamTotal[s,1]*totalRain[t-1,1]+ # PuertoRico
-                              gamTotal[s,2]*totalRain[t-1,2]+ # Cuba
-                              gamTotal[s,3]*totalRain[t-1,3]+ # Jamaica
-                              gamTotal[s,4]*totalRain[t-1,4])  # Hisp
-  
+                              gamTotal[s]*totalRain[t-1,s]+
+                              gamMin[s]*minRain[t-1,s]+
+                              gamMar[s]*marRain[t-1,s]+
+                              gamApr[s]*aprRain[t-1,s])  
 
 N[i,t,s] ~ dpois(Npred[i,t,s]) 
 Npred[i,t,s] <- S[i,t-1,s] + G[i,t-1,s]
@@ -1476,15 +1708,59 @@ for(j in 1:nreps) {                        # Replicates
 #### Derived parameters ####
 for(s in 1:2) {
 for(t in 1:(nyears-1)) {
-RecruitRate[t,s]<-mean(Gamma[,t,s])
+#RecruitRate[t,s]<-mean(Gamma[,t,s])
 TotRecruit[t,s]<-sum(G[,t,s])
+Ntot[t,s]<-sum(N[,t,s])
   } # t
 } # s 
 
 ######## Derived Parameters #############
 
 } # END MODEL",
-    fill=TRUE,file="MC_DM_fullParam.txt")
+    fill=TRUE,file="MC_DM_fullParam_IPM.txt")
+
+
+
+# Read in annual capture history for adults (M and F) 
+AnnualHistory<-read.csv("D:/Google_Drive/BTBW_HBEF/Cost_Of_Repro/Data/CaptureHistory_86_15.csv",header=TRUE)
+
+# Convert capture history into a matrix - ch
+ch<-as.matrix(AnnualHistory[,23:39])
+
+# check if any cells have NA
+any(is.na(ch)) # returns FALSE 
+
+# sum columns - if 0 inds were not seen #
+above0<-which(apply(ch,1,sum)>=1)
+
+ch<-ch[which(apply(ch,1,sum)>=1),]
+
+sex<-AnnualHistory$Sex[above0]
+
+bandNum<-AnnualHistory$AlumBand[above0]
+
+YearBand<-AnnualHistory$FirstYear[above0]
+
+# assume ? and blanks are females #
+S<-rep(NA,dim(ch)[1])
+for(i in 1:dim(ch)[1]){
+if(sex[i]=="F") S[i]<-2
+if(sex[i]=="M") S[i]<-1
+}
+
+S[is.na(S)]<-2
+
+n.occasions<-dim(ch)[2]
+N.inds<-dim(ch)[1]
+
+#remove any individuals that were not seen during that time frame 
+## Create a function to find the when the individual was first marked / seen ##
+get.first<-function(x) min(which(x!=0))
+get.last<-function(x) max(which(x!=0))
+
+First<-apply(ch,1,get.first)
+Last<-apply(ch,1,get.last)
+
 
 # Function to put into initial values for Nst #
 N<-function(x){
@@ -1499,8 +1775,18 @@ N<-function(x){
 }
 
 
+# Function to change leading zeros before banding to NA #
+ch.init<-function(ch,First){
+          for (i in 1:dim(ch)[1]){
+             ch[i,1:First[i]]<-NA}
+              return(ch)
+}
+
+
 inits<-function() list(N=N(spec.mat),
-                       W = c(0.5,0.5))
+                       z=ch.init(matrix(1,dim(ch)[1],dim(ch)[2]),First),
+                       phi.spp=runif(17,0,1),
+                       p.spp=runif(1,0,1))
 
 
 nchains<-3
@@ -1519,31 +1805,64 @@ win.data<-list(Elev = Elev,
                ncovs=4,
                pcovs=2,
                nyears=17,
-               AprilRain = AprilRain[2:18,],
-               totalRain = winterRain[2:18,])
+               minRain = WeightedRain[,3,],
+               totalRain = WeightedRain[,1,],
+               marRain = WeightedRain[,4,],
+               aprRain = WeightedRain[,5,],
+               y.sur=ch,
+               First=First,
+               n=dim(ch)[1],
+               n.occasions=dim(ch)[2],
+               sex=S,
+                year=c(1:18))
 
                #HBEFgridCovs = HBEFgridCovs)
 
-params<-c("W","Gamma","RecruitRate","gam1","TotRecruit","gamApril","gamTotal")
+params<-c("gam0","gam1","TotRecruit","gamMin","gamMar","gamApr","gamTotal","phi.spp","p.spp","G","S","Ntot","phi.spp")
 
 library(jagsUI)
 
 Sys.time()
 a<-Sys.time()
-M<-jags(model="MC_DM_fullParam.txt",
+M<-jags(model="MC_DM_fullParam_IPM.txt",
         data= win.data,
         parameters.to.save = params,
         seed = 9328,
         inits = inits,
         n.chain=3,
-        n.thin = 5,
-        n.iter=10000,
-        codaOnly = c("Gamma"),
-        n.burnin=5000,
+        n.thin = 1,
+        n.iter=2500,
+        codaOnly = c("Gamma","p.spp","phi.spp","TotRecruit","gam1","G","S","Ntot"),
+        n.burnin=500,
         DIC = FALSE,
         parallel = TRUE)
 Sys.time()-a
 Sys.time()
+#saveRDS(M,"FullyParamRainResults.rds")
+
+
+1999:2015
+str(M$sims.list$TotRecruit)
+Recruits<-apply(M$sims.list$TotRecruit,c(2,3),mean)
+q97.5<-array(NA,c(16,2,2))
+for(i in 1:16){
+for(s in 1:2){
+q97.5[i,1,s]<-quantile(M$sims.list$TotRecruit[,i,s],probs=0.975)
+q97.5[i,2,s]<-quantile(M$sims.list$TotRecruit[,i,s],probs=0.025)
+}
+}
+OVENr<-Recruits[,1]
+par(bty='l')
+plot(Recruits[,1]~WeightedRain[2:17,5,1],pch=19,cex=2,ylab="Recruits",xlab="April Precipitation (mm)",ylim=c(0,2000),yaxt="n")
+segments(WeightedRain[2:17,5,1],q97.5[,1,1],WeightedRain[2:17,5,1],q97.5[,2,1])
+text(WeightedRain[2:17,5,1]+1,Recruits[,1]-50,labels=paste0("'",substr(rownames(WeightedRain)[2:17],3,4)))
+axis(2,las=2)
+
+plot(Recruits[,2]~WeightedRain[2:17,5,2],pch=19,cex=2,ylab="Recruits",xlab="April Precipitation (mm)",ylim=c(0,3000),yaxt="n")
+segments(WeightedRain[2:17,5,2],q97.5[,1,2],WeightedRain[2:17,5,2],q97.5[,2,2])
+text(WeightedRain[2:17,5,2]+3,Recruits[,2]-100,labels=paste0("'",substr(rownames(WeightedRain)[2:17],3,4)))
+axis(2,las=2)
+
 
 ############################################################################################################################
 #
@@ -1569,6 +1888,16 @@ OVENpropSY[i]<-table(subset(OVENdata$Age,OVENdata$Year==yr[i]))[7]/sum(table(sub
 }
 
 # Black-throated Blue Warbler
+BTBWnests<-read.csv("Data/EPY_WPY_BTBW_1995_2015.csv")
+names(BTBWnests)
+library(dplyr)
+Nestlings<-group_by(BTBWnests,MotherUSFWS,Year)%>%
+             summarize(Young=n_distinct(NestlingUSFWS))
+Fecund<-group_by(Nestlings,Year)%>%
+             summarize(Fecund=mean(Young))
+Fecund<-as.data.frame(Fecund)
+
+
 BTBWdata<-read.csv("Data/BtbwCaptures.csv")
 
 BTBWdata<-subset(BTBWdata,AgeInital=="SY" | AgeInital=="ASY")
@@ -1578,17 +1907,86 @@ BTBWdata$Year<-format(BTBWdata$Date,"%Y")
 BTBWdata<-subset(BTBWdata,Year>=1999)
 
 BTBWyr<-1999:2015
-BTBWpropSY<-rep(NA,length(BTBWyr))
+BTBWpropSY<-BTBWrecruits<-rep(NA,length(BTBWyr))
 for(i in 1:length(BTBWyr)){
   BTBWpropSY[i]<-table(subset(BTBWdata$AgeInital,BTBWdata$Year==BTBWyr[i]))[9]/sum(table(subset(BTBWdata$AgeInital,BTBWdata$Year==BTBWyr[i]))[c(4,9)])  
+  BTBWrecruits[i]<-sum(table(subset(BTBWdata$AgeInital,BTBWdata$Year==BTBWyr[i])))
+}
+years<-1999:2015
+plotEffort<-vector('list',length(years))
+effort<-rep(NA,length(years))
+for(i in 1:length(years)){
+plotEffort[[i]]<-shapefile(paste0("C:/Users/Michael/Dropbox (Smithsonian)/BTBW Project/Spatial_Layers/PlotEffort/BoundingPlotBoxes/BB_Territories",years[i],".shp"))
+effort[i]<-gArea(plotEffort[[i]])/10000
 }
 
-par(bty="l",mfrow=c(2,2))
-plot(BTBWpropSY~MarchRain[2:18,1],pch=19,ylim=c(0,1),main="Puerto Rico",xlab="Precipitation")
-text(x=MarchRain[2:18,1],y=BTBWpropSY-0.025,labels=BTBWyr,cex=0.7)
-plot(BTBWpropSY~MarchRain[2:18,2],pch=19,ylim=c(0,1),main="Cuba",xlab="Precipitation")
-text(x=MarchRain[2:18,2],y=BTBWpropSY-0.025,labels=BTBWyr,cex=0.7)
-plot(BTBWpropSY~MarchRain[2:18,3],pch=19,ylim=c(0,1),main="Jamaica",xlab="Precipitation")
-text(x=MarchRain[2:18,3],y=BTBWpropSY-0.025,labels=BTBWyr,cex=0.7)
-plot(BTBWpropSY~MarchRain[2:18,4],pch=19,ylim=c(0,1),main="Hispainola",xlab="Precipitation")
-text(x=MarchRain[2:18,4],y=BTBWpropSY-0.025,labels=BTBWyr,cex=0.7)
+plot((BTBWrecruits/effort)~Fecund[4:20,2],xlim=c(3,5.5))
+
+linearModel<-lm((BTBWrecruits/effort)~Fecund[4:20,2])
+linearModel$residuals
+plot((linearModel$residuals~NDVIyrs[,2]))
+points(loess.smooth(NDVIyrs[,2],linearModel$residuals),type="l")
+
+par(bty="l")
+plot((BTBWrecruits/effort)~NDVIyrs[,2],pch=19,cex=2,yaxt="n",ylab="New recruits / ha",xlab="Weighted NDVI",xlim=c(0.46,0.56),ylim=c(0,0.8))
+axis(2,las=2)
+abline(lm((BTBWrecruits/effort)~NDVIyrs[,2]))
+text(NDVIyrs[,2],(BTBWrecruits/effort)-0.05,label=paste0("'",substr(BTBWyr,3,4)))
+
+
+
+plot(BTBWpropSY~NDVIyrs[,1])
+abline(lm(BTBWpropSY~NDVIyrs[,1]))
+
+
+plot(apply(M$sims.list$TotRecruit,c(2,3),mean)[3:16,1]~PRloss,pch=19,cex=2,ylab="",xlab="Forest Loss (km2)",yaxt="n")
+axis(2,las=2)
+abline(lm(apply(M$sims.list$TotRecruit,c(2,3),mean)[3:16,2]~JamaicaLoss))
+
+
+plot(apply(M$sims.list$TotRecruit,c(2,3),mean)[3:16,1]~HispLoss,pch=19,cex=2,ylab="",xlab="Forest Loss (km2)",yaxt="n")
+axis(2,las=2)
+abline(lm(apply(M$sims.list$TotRecruit,c(2,3),mean)[3:16,1]~HispLoss))
+
+par(bty="l")
+plot(apply(M$sims.list$TotRecruit,c(2,3),mean)[3:16,2]~NDVIyrs[2:17,2],pch=19,cex=2,ylab="",xlab="",yaxt="n")
+axis(2,las=2)
+##########################################################################################################################################
+#
+# NDVI
+#
+##############################################################################################################################################
+M$mean$gamApr
+
+NDVIfiles<-list.files("Data/NDVI",full.names=TRUE)
+NDVI<-vector('list',length(NDVIfiles))
+for(i in 1:17){
+NDVI[[i]]<-raster(NDVIfiles[i])
+NDVI[[i]][NDVI[[i]]>1]<-NA
+NDVI[[i]]<-crop(NDVI[[i]],winterIslands)
+}
+
+NDVIyrs<-sdNDVI<-array(NA,c(17,2))
+for(i in 1:17){
+NDVIyrs[i,1]<-mean(extract(NDVI[[i]],cbind(OVENpts[,c(1:2)])),weight=OVENpts[,3],na.rm=TRUE)
+NDVIyrs[i,2]<-mean(extract(NDVI[[i]],cbind(BTBWpts[,c(1:2)])),weight=BTBWpts[,3],na.rm=TRUE)
+sdNDVI[i,1]<-sd(extract(NDVI[[i]],cbind(OVENpts[,c(1:2)])),na.rm=TRUE)
+sdNDVI[i,2]<-sd(extract(NDVI[[i]],cbind(BTBWpts[,c(1:2)])),na.rm=TRUE)
+}
+
+plot(Recruits[,2]~NDVIyrs[2:17,2])
+
+quantile(M$sims.list$phi.spp[,1],probs=0.975)
+par(bty="l")
+plot(M$mean$phi.spp~NDVIyrs[,2],pch=19,cex=2,ylab="Survival",xlab="Weighted NDVI",yaxt="n",ylim=c(0,1))
+segments(NDVIyrs[,2],M$q2.5$phi.spp,NDVIyrs[,2],M$q97.5$phi.spp)
+axis(2,las=2)
+text(NDVIyrs[,2],M$mean$phi-0.03,label=paste0("'",substr(BTBWyr,3,4)))
+abline(lm(M$mean$phi.spp~NDVIyrs[,2]))
+
+visNDVI<-raster(NDVIfiles[17])
+plot(visNDVI)
+set.breaks<-seq(0,1,,100)
+cols<-colorRampPalette(c("brown","beige","forestgreen"))
+plot(winterIslands)
+plot(visNDVI,add=TRUE)
