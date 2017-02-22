@@ -9,8 +9,10 @@
 
 # RStudio files
 *.Rproj
+*.Rproj.user
 
 # Data, Spatial_Layers and MS folder
 Data/
 Spatial_Layers/
 Manuscript/
+Figures/
