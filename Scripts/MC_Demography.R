@@ -1,6 +1,4 @@
 
-.libPaths("D:/Google_Drive/Hallworth_R_Library")
-
 library(raster)
 library(rgdal)
 library(sp)
@@ -9,7 +7,7 @@ library(maptools)
 library(rgeos)
 library(geosphere)
 library(SGAT)
-library(BAStag)
+library(TwGeos)
 library(MASS)
 
 ##############################################################################
@@ -61,44 +59,41 @@ CapLocs[3,]<- cbind(-71.77704,43.93618)
 CapLocs[4,]<- cbind(-71.78147,43.93536)
 
 
-# Defining Twilights
-tm<-rise<-vector('list',nBirds)
+## ----echo=FALSE----------------------------------------------------------
+twl <- twlEdit <- vector('list',nBirds)
+seed <- as.POSIXct("2015-11-01 04:00", origin  = "1970-01-01", tz = "GMT")
 
 for(i in 1:nBirds){
-  tm[[i]] <- seq(from = BTBWdata[[i]][1,2], 
-                 to = BTBWdata[[i]][nrow(BTBWdata[[i]]),2], 
-                 by = "day")
-  
-  rise[[i]] <- rep(c(TRUE, FALSE), length(tm[[i]]))
+
+twl[[i]]  <- findTwilights(tagdata = BTBWdata[[i]], 
+                      threshold = 1, 
+                      include = seed,
+                      dark.min = 240) # minimum dark period in minutes
+
+twlEdit[[i]] <- twilightEdit(twilights = twl[[i]], 
+                    window = 4,           # two days before and two days after
+                    outlier.mins = 30,    # difference in mins
+                    stationary.mins = 15, # are the other surrounding twilights within 25 mins of one another
+                    plot = TRUE)
+
+twlEdit [[i]] <- twilightAdjust(twilights = twlEdit[[i]], 
+                      interval = 120) # The unit here is seconds
 }
 
-# making predicted twilight times given location and zenith #
-cal.dat<-vector('list',nBirds)
-
-for(i in 1:nBirds){
-  cal.dat[[i]] <- data.frame(Twilight = twilight(rep(tm[[i]], each = 2),
-                                                 lon = CapLocs[i,1], 
-                                                 lat = CapLocs[i,2], 
-                                                 rise = rise[[i]], zenith = 94),
-                             Rise = rise[[i]]) 
-}
-
-twl<-vector('list',nBirds)
-for(i in 1:nBirds){
-twl[[i]]<-readRDS(paste0("Data/GLdata/BTBW/twilightFiles/",BirdId[[i]],".rds"))
-}
+twlEdit[[3]] <- twlEdit[[3]][8:nrow(twlEdit[[3]]),]
+twlEdit[[4]] <- twlEdit[[4]][5:nrow(twlEdit[[4]]),]
 
 # Create a vector with the dates known to be at deployment #
 calib.dates <- vector('list',nBirds)
 
 for(i in 1:nBirds){
-  calib.dates[[i]] <- c(strptime(twl[[i]][1,1],format="%Y-%m-%d"),as.POSIXct("2015-08-15"))
+  calib.dates[[i]] <- c(strptime(twlEdit[[i]][1,1],format="%Y-%m-%d"),as.POSIXct("2015-08-15"))
 }
 
 calibration.data<-vector('list',nBirds)
 
 for(i in 1:nBirds){
-  calibration.data[[i]]<-subset(twl[[i]],twl[[i]]$Twilight>=calib.dates[[i]][1] & twl[[i]]$Twilight<=calib.dates[[i]][2])
+  calibration.data[[i]]<-subset(twlEdit[[i]],twlEdit[[i]]$Twilight>=calib.dates[[i]][1] & twlEdit[[i]]$Twilight<=calib.dates[[i]][2])
 }
 
 
@@ -140,7 +135,7 @@ for(i in 1:nBirds){
 
 
 b<-unlist(twl_deviation)
-b[b>400]<-NA
+b[b>200]<-NA
 
 cols<-c("red","blue","green","yellow","orange","purple","brown","gray","black","pink")
 seq <- seq(0,60, length = 100)
@@ -180,17 +175,56 @@ for(i in 1:nBirds){
   zenith1[i]<-quantile(z[[i]],prob=0.95)
 }
 
+twlEdit[[3]] <- twlEdit[[3]][8:nrow(twlEdit[[3]]),]
+
 # subset the twilight file for dates after the first calibration date (presumably the deployment date)  
 # and exclude points that were deleted  
 # note we didn't delete any transitions here
 
+tol <- array(0.08, c(nBirds,2))
+# Manual Adjustments
+tol[1,1] <- 0.12
+tol[2,1] <- 0.16
+tol[3,1] <- 0.12
+tol[4,1] <- 0.12
+
+tol[1,2] <- 0.23
+tol[2,2] <- 0.2
+tol[3,2] <- 0.142
+tol[4,2] <- 0.185
+
+
 for(i in 1:nBirds){  
-  d.twl[[i]]<-subset(twl[[i]],twl[[i]]$Twilight>=calib.dates[[i]][1] & !Deleted)
+  twlEdit[[i]]<-subset(twlEdit[[i]],twlEdit[[i]]$Twilight>=calib.dates[[i]][1] & !Deleted)
   
-  path[[i]] <- thresholdPath(twilight = d.twl[[i]]$Twilight,
-                             rise = d.twl[[i]]$Rise,
+  path[[i]] <- thresholdPath(twilight = twlEdit[[i]]$Twilight,
+                             rise = twlEdit[[i]]$Rise,
                              zenith = zenith0[i],
-                             tol = 0)
+                             tol = tol[i,])
+}
+
+for(i in 1:nBirds){
+  i = 4
+  print(BirdId[[i]])
+  layout(matrix(c(1,3,
+                  2,3), 2, 2, byrow = TRUE))
+  par(mar=c(2,4,2,0))
+  plot(path[[i]]$time, path[[i]]$x[, 2], type = "b", pch = 16, cex = 0.5, ylab = "Latitude", xlab = '',xaxt="n",
+       col=ifelse(path[[i]]$time<as.POSIXct("2016-01-01",format="%Y-%m-%d"),"blue","green"))
+  abline(h = CapLocs[i,2])
+  abline(v = as.POSIXct("2015-09-23"),col="red",lty=2,lwd=1.5)
+  abline(v = as.POSIXct("2016-03-20"),col="red",lty=2,lwd=1.5)
+  par(mar=c(2,4,2,0))
+  plot(path[[i]]$time, path[[i]]$x[, 1], type = "b", pch = 16, cex = 0.5, ylab = "Longitude", xlab = '',
+       col=ifelse(path[[i]]$time<as.POSIXct("2016-01-01",format="%Y-%m-%d"),"blue","green"))
+  abline(h = CapLocs[i,1])
+  abline(v = as.POSIXct("2015-09-23"),col="red",lty=2,lwd=1.5)
+  abline(v = as.POSIXct("2016-03-20"),col="red",lty=2,lwd=1.5)
+  plot(Americas, col = "grey95",xlim = c(-120,-60),ylim=c(0,40))
+  plot(BTBWdist, col = "grey45",border="grey45",add=TRUE)
+  box()
+  lines(path[[i]]$x, col = ifelse(path[[i]]$time<as.POSIXct("2016-01-01",format="%Y-%m-%d"),"blue","green"))
+  points(path[[i]]$x, pch = 16, cex = 0.5, col=ifelse(path[[i]]$time<as.POSIXct("2016-01-01",format="%Y-%m-%d"),"blue","green"))
 }
 
 
@@ -210,8 +244,9 @@ fixedx <- vector('list',nBirds)
 
 for(i in 1:nBirds){
   fixedx[[i]]<- rep(FALSE, nrow(x0[[i]]))
-  
-  fixedx[[i]][c(1:10,(nrow(x0[[i]])-3):nrow(x0[[i]]))] <- TRUE
+  # from capture to Sept 1. 
+  fixedx[[i]][c(1:max(which(twlEdit[[i]][,1] < as.POSIXct("2015-09-01",format = "%Y-%m-%d"))),
+               (nrow(x0[[i]])-3):nrow(x0[[i]]))] <- TRUE
   
   x0[[i]][fixedx[[i]], 1] <- CapLocs[i,1]
   x0[[i]][fixedx[[i]], 2] <- CapLocs[i,2]
@@ -262,8 +297,8 @@ log.prior <- function(p) {
 model <-  vector('list', nBirds)
 
 for(i in 1:nBirds){
-  model[[i]]<- thresholdModel(twilight = d.twl[[i]]$Twilight,
-                              rise = d.twl[[i]]$Rise,
+  model[[i]]<- thresholdModel(twilight = twlEdit[[i]]$Twilight,
+                              rise = twlEdit[[i]]$Rise,
                               twilight.model = "ModifiedLogNormal",
                               alpha = alpha[[i]],
                               beta = beta,
@@ -275,7 +310,6 @@ for(i in 1:nBirds){
                               fixedx = fixedx[[i]])
 }
 
-
 # This defines the error distribution around each location #
 proposal.x <- proposal.z <- vector('list',nBirds)
 
@@ -284,16 +318,19 @@ for(i in 1:nBirds){
   proposal.z[[i]] <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(z0[[i]]))
 }
 
-fit <- vector('list', nBirds)
+fit <- xsum <- zsum <- vector('list', nBirds)
 
 for(i in 1:nBirds){
   
   fit[[i]] <- estelleMetropolis(model = model[[i]],
                                 proposal.x = proposal.x[[i]],
                                 proposal.z = proposal.z[[i]],
-                                iters = 10000, # This value sets the number of iterations to run
-                                thin = 1,
+                                iters = 2000, # This value sets the number of iterations to run
+                                thin = 10,
                                 chains = 3)
+
+xsum[[i]] <- locationSummary(fit[[i]]$x)
+zsum[[i]] <- locationSummary(fit[[i]]$z)  
 
 ### Fine Tuning 
 
@@ -303,10 +340,10 @@ proposal.z[[i]] <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(z0[[i]]))
 fit[[i]] <- estelleMetropolis(model = model[[i]],
                               proposal.x = proposal.x[[i]],
                               proposal.z = proposal.z[[i]],
-                              x0 = chainLast(fit[[i]]$x),
-                              z0 = chainLast(fit[[i]]$z),
-                              iters=10000, # This value sets the number of iterations to run
-                              thin=2,
+                              x0 = cbind(xsum[[i]]$'Lon.50%',xsum[[i]]$'Lat.50%'),
+                              z0 = cbind(zsum[[i]]$'Lon.50%',zsum[[i]]$'Lat.50%'),
+                              iters=2000, # This value sets the number of iterations to run
+                              thin=10,
                               chains=3)
 
 # Final Run
@@ -314,30 +351,44 @@ fit[[i]] <- estelleMetropolis(model = model[[i]],
 proposal.x[[i]] <- mvnorm(chainCov(fit[[i]]$x),s=0.1)
 proposal.z[[i]] <- mvnorm(chainCov(fit[[i]]$z),s=0.1)
 
+xsum[[i]] <- locationSummary(fit[[i]]$x)
+zsum[[i]] <- locationSummary(fit[[i]]$z)  
+
 # Note the increase in number of interations - this takes a bit longer to run
 fit[[i]] <- estelleMetropolis(model = model[[i]],
                               proposal.x = proposal.x[[i]],
                               proposal.z = proposal.z[[i]],
-                              x0=chainLast(fit[[i]]$x),
-                              z0=chainLast(fit[[i]]$z),
+                              x0 = cbind(xsum[[i]]$'Lon.50%',xsum[[i]]$'Lat.50%'),
+                              z0 = cbind(zsum[[i]]$'Lon.50%',zsum[[i]]$'Lat.50%'),
                               iters=5000,  # This value sets the number of iterations to run
-                              thin=2,
+                              thin=10,
                               chains=3)
 
 }
 ## Inital results 
 
-# This step makes an empty raster #
-r <- raster(nrows=4*diff(ylim),ncols=4*diff(xlim),xmn=xlim[1],xmx=xlim[2],ymn=ylim[1],ymx=ylim[2])
+xlim <- c(-100,-60)
+ylim <- c(0,55)
+ 
 
-S <- vector('list',nBirds)
+# This step makes an empty raster #
+r <- raster(res = c(0.25,0.25),
+            xmn = xlim[1],
+            xmx = xlim[2], 
+            ymn = ylim[1],
+            ymx = ylim[2])
+
+S <- nonbreed <- breed <- vector('list',nBirds)
 
 for(i in 1:nBirds){
   S[[i]] <- slices(type="intermediate",
                    breaks="day",
                    mcmc=fit[[i]],
-                   grid=r)
+                   grid=r,
+                   weight = rep(0.5,length(fit[[i]][[1]]$time)))
 }
+
+###
 
 DATES <-  tm_breed <-tm_winter<-breed<-winter<- vector('list',nBirds)
 Aug31 <- Nov01  <- April1<- rep(NA,nBirds)
@@ -1059,6 +1110,8 @@ JAMelev<-getData('alt',country="JAM")
 
 WIelev<-merge(DOMelev,HAIelev,JAMelev,CUBelev,PRelev)
 WLhs<-hillShade(terrain(WIelev,"slope"),terrain(WIelev,'aspect'),angle=45,degree=10)
+
+
 winterIslands<-gUnion(gUnion(gUnion(Cuba,Jamaica),Hisp),PR)
 
 
@@ -1138,11 +1191,11 @@ WeightedRain<-array(NA,c(17,5,2))
 rownames(WeightedRain)<-c(1999:2015)
 colnames(WeightedRain)<-c("TotalWinter","SD","MinimumMonth","March","April")
 for(i in 1:17){
-WeightedRain[i,1,2]<-mean(apply(BTBWweightRain[,c(11,12,1,2,3,4),i],1,sum),weight=BTBWpts[,3])
-WeightedRain[i,2,2]<-mean(apply(BTBWweightRain[,c(11,12,1,2,3,4),i],1,sd),weight=BTBWpts[,3])
-WeightedRain[i,3,2]<-mean(BTBWweightRain[,2,i],weight=BTBWpts[,3])
-WeightedRain[i,4,2]<-mean(BTBWweightRain[,3,i],weight=BTBWpts[,3])
-WeightedRain[i,5,2]<-mean(BTBWweightRain[,4,i],weight=BTBWpts[,3])
+WeightedRain[i,1,2]<-mean(apply(BTBWweightRain[,c(11,12,1,2,3,4),i],1,sum),weight=BTBWpts[,3],na.rm=TRUE)
+WeightedRain[i,2,2]<-mean(apply(BTBWweightRain[,c(11,12,1,2,3,4),i],1,sd),weight=BTBWpts[,3],na.rm=TRUE)
+WeightedRain[i,3,2]<-mean(BTBWweightRain[,2,i],weight=BTBWpts[,3],na.rm=TRUE)
+WeightedRain[i,4,2]<-mean(BTBWweightRain[,3,i],weight=BTBWpts[,3],na.rm=TRUE)
+WeightedRain[i,5,2]<-mean(BTBWweightRain[,4,i],weight=BTBWpts[,3],na.rm=TRUE)
 WeightedRain[i,1,1]<-mean(apply(OVENweightRain[,c(11,12,1,2,3,4),i],1,sum,na.rm=TRUE),weight=OVENpts[,3])
 WeightedRain[i,2,1]<-mean(apply(OVENweightRain[,c(11,12,1,2,3,4),i],1,sd,na.rm=T),weight=OVENpts[,3],na.rm=T)
 WeightedRain[i,3,1]<-mean(OVENweightRain[,2,i],weight=OVENpts[,3],na.rm=TRUE)
@@ -1151,11 +1204,11 @@ WeightedRain[i,5,1]<-mean(OVENweightRain[,4,i],weight=OVENpts[,3],na.rm=TRUE)
 }
 
 col2rgb("brown")
-plot(BTBWwinterWeight,pch=19,cex=1.25,type="o",ylim=c(500,900))
-polygon(c(1:17,17:1),c(BTBWwinterWeight-BTBWweightedSD,rev(BTBWwinterWeight+BTBWweightedSD)),col=rgb(1,0,0,0.5),border="lightgray")
-polygon(c(1:17,17:1),c(OVENwinterWeight-OVENweightedSD,rev(OVENwinterWeight+OVENweightedSD)),col=rgb(165,42,42,175,maxColorValue=255),border=rgb(165,42,42,175,maxColorValue=255))
+plot(WeightedRain[,1,1],pch=19,cex=1.25,type="o",ylim=c(500,900))
+polygon(c(1:17,17:1),c(WeightedRain[,1,1]-WeightedRain[,2,1],rev(WeightedRain[,1,1]+WeightedRain[,2,1])),col=rgb(1,0,0,0.5),border="lightgray")
+polygon(c(1:17,17:1),c(WeightedRain[,1,2]-WeightedRain[,2,2],rev(WeightedRain[,1,2]+WeightedRain[,2,2])),col=rgb(165,42,42,175,maxColorValue=255),border=rgb(165,42,42,175,maxColorValue=255))
 par(new=TRUE)
-plot(BTBWwinterWeight,pch=19,cex=1.25,type="o",ylim=c(500,900),axes=F,ylab="",xlab="")
+plot(WeightedRain[,1,2],pch=19,cex=1.25,type="o",ylim=c(500,900),axes=F,ylab="",xlab="")
 par(new=TRUE)
 plot(OVENwinterWeight,pch=19,cex=1.25,type="o",ylim=c(500,900))
 
@@ -1561,6 +1614,7 @@ sdNDVI[i,1]<-sd(extract(NDVI[[i]],cbind(OVENpts[,c(1:2)])),na.rm=TRUE)
 sdNDVI[i,2]<-sd(extract(NDVI[[i]],cbind(BTBWpts[,c(1:2)])),na.rm=TRUE)
 }
 
+library(jagsUI)
 ############ Dail - Madsen fully parameterized ###################
 
 cat("
@@ -1888,15 +1942,19 @@ OVENpropSY[i]<-table(subset(OVENdata$Age,OVENdata$Year==yr[i]))[7]/sum(table(sub
 }
 
 # Black-throated Blue Warbler
-BTBWnests<-read.csv("Data/EPY_WPY_BTBW_1995_2015.csv")
+BTBWnests<-shapefile("C:/Users/Michael/Dropbox (Smithsonian)/BTBW Project/Spatial_Layers/NestShapefiles/NestLocations_1986_2015.shp")
 names(BTBWnests)
+BTBWnestData<-BTBWnests@data
+BTBWnestData$fledged<-as.numeric(BTBWnestData$fledged)
 library(dplyr)
-Nestlings<-group_by(BTBWnests,MotherUSFWS,Year)%>%
-             summarize(Young=n_distinct(NestlingUSFWS))
-Fecund<-group_by(Nestlings,Year)%>%
-             summarize(Fecund=mean(Young))
-Fecund<-as.data.frame(Fecund)
 
+Nestlings<-group_by(BTBWnestData,Aluminum_F,Year)%>%
+             summarize(Young=sum(fledged,na.rm=TRUE))
+
+Fecund<-group_by(Nestlings,Year)%>%
+             summarize(Fecund=mean(Young,na.rm=TRUE))
+
+Fecund<-as.data.frame(Fecund)
 
 BTBWdata<-read.csv("Data/BtbwCaptures.csv")
 
@@ -1907,11 +1965,13 @@ BTBWdata$Year<-format(BTBWdata$Date,"%Y")
 BTBWdata<-subset(BTBWdata,Year>=1999)
 
 BTBWyr<-1999:2015
-BTBWpropSY<-BTBWrecruits<-rep(NA,length(BTBWyr))
+BTBWpropSY<-BTBWrecruits<-SYs<-rep(NA,length(BTBWyr))
 for(i in 1:length(BTBWyr)){
   BTBWpropSY[i]<-table(subset(BTBWdata$AgeInital,BTBWdata$Year==BTBWyr[i]))[9]/sum(table(subset(BTBWdata$AgeInital,BTBWdata$Year==BTBWyr[i]))[c(4,9)])  
+  SYs[i]<-table(subset(BTBWdata$AgeInital,BTBWdata$Year==BTBWyr[i]))[9]
   BTBWrecruits[i]<-sum(table(subset(BTBWdata$AgeInital,BTBWdata$Year==BTBWyr[i])))
 }
+
 years<-1999:2015
 plotEffort<-vector('list',length(years))
 effort<-rep(NA,length(years))
@@ -1920,12 +1980,20 @@ plotEffort[[i]]<-shapefile(paste0("C:/Users/Michael/Dropbox (Smithsonian)/BTBW P
 effort[i]<-gArea(plotEffort[[i]])/10000
 }
 
-plot((BTBWrecruits/effort)~Fecund[4:20,2],xlim=c(3,5.5))
+plot(BTBWrecruits/effort~Fecund[15:31,2])
+cbind(1999:2015,SYs/effort,BTBWrecruits/effort,Fecund[15:31,])
 
-linearModel<-lm((BTBWrecruits/effort)~Fecund[4:20,2])
+
+linearModel<-lm((BTBWrecruits/effort)~Fecund[15:31,2])
 linearModel$residuals
-plot((linearModel$residuals~NDVIyrs[,2]))
-points(loess.smooth(NDVIyrs[,2],linearModel$residuals),type="l")
+plot((linearModel$residuals~NDVIyrs[,2]),pch=19,cex=2,yaxt="n",ylab="Residuals",xlab="NDVI")
+text(NDVIyrs[,2],linearModel$residuals-0.01,label=paste0("'",substr(BTBWyr,3,4)))
+axis(2,las=2)
+abline(lm(linearModel$residuals[c(1:3,5:17)]~NDVIyrs[c(1:3,5:17),2]))
+abline(lm(linearModel$residuals~NDVIyrs[,2]),lty=2)
+
+summary(lm(linearModel$residuals[c(1:3,5:17)]~NDVIyrs[c(1:3,5:17),2]))
+#points(loess.smooth(NDVIyrs[,2],linearModel$residuals),type="l")
 
 par(bty="l")
 plot((BTBWrecruits/effort)~NDVIyrs[,2],pch=19,cex=2,yaxt="n",ylab="New recruits / ha",xlab="Weighted NDVI",xlim=c(0.46,0.56),ylim=c(0,0.8))
