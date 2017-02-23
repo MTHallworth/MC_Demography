@@ -9,6 +9,7 @@ library(geosphere)
 library(SGAT)
 library(TwGeos)
 library(MASS)
+library(mth)
 
 ##############################################################################
 #
@@ -37,12 +38,8 @@ BirdId<- list.files("Data/GLdata/BTBW/LigFiles", pattern = ".lig")
 nBirds<-length(BirdId)
 
 # Read in the lux file
-BTBWdata<-vector('list',nBirds)
 
-# Loop through all the files and read them in as LUX files #
-for(i in 1:nBirds){
-  BTBWdata[[i]] <- readLig(BTBW_HBEF[i],skip=1)  
-}
+BTBWdata <- lapply(BTBW_HBEF, readLig, skip=1)  
 
 head(BTBWdata[[1]])
 
@@ -204,7 +201,6 @@ for(i in 1:nBirds){
 }
 
 for(i in 1:nBirds){
-  i = 4
   print(BirdId[[i]])
   layout(matrix(c(1,3,
                   2,3), 2, 2, byrow = TRUE))
@@ -466,11 +462,11 @@ prOrigin<-sumBirdsWinter_btbw/4
 
 MC_btbw<-(cellStats(prOrigin,max) - 1/nBirds) / (1 - 1/nBirds) 
 
-
-
-
-#########################################################################
-#   OVENBIRDS
+########################################################################
+#
+#
+#                               OVENBIRDS
+#
 #########################################################################
 
 OVENdist<-shapefile("Spatial_Layers/OVENdist.shp")
@@ -487,13 +483,9 @@ BirdId<- list.files("Data/GLdata/OVEN/LigFiles", pattern = ".lig")
 # Determine the number of birds
 nBirds<-length(BirdId)
 
-# Read in the lux file
-OVENdata<-vector('list',nBirds)
-
 # Loop through all the files and read them in as LUX files #
-for(i in 1:nBirds){
-  OVENdata[[i]] <- readLig(OVEN_HBEF[i],skip=1)  
-}
+
+OVENdata <- lapply(OVEN_HBEF,readLig,skip=1)  
 
 head(OVENdata[[1]])
 
@@ -506,32 +498,43 @@ rownames(CapLocs)<-OVENnames
 # Capture locations
 CapLocs<- cbind(-71.73,43.94)
 
-# Defining Twilights
-tm<-rise<-vector('list',nBirds)
-
+lapply(OVENdata,head)
+## ----echo=FALSE----------------------------------------------------------
+twl <- twlEdit <- seed <- vector('list',nBirds)
 for(i in 1:nBirds){
-  tm[[i]] <- seq(from = OVENdata[[i]][1,2], 
-                 to = OVENdata[[i]][nrow(OVENdata[[i]]),2], 
-                 by = "day")
-  
-  rise[[i]] <- rep(c(TRUE, FALSE), length(tm[[i]]))
+if(i %in% c(1,3,8)){
+seed[[i]] <- as.POSIXct("2010-11-01 04:00", origin  = "1970-01-01", tz = "GMT")
+} 
+if(i %in% c(2,4:7,9:20)){
+seed[[i]] <- as.POSIXct("2012-01-01 04:00", origin = "1970-01-01", tz = "GMT")
+}
 }
 
-# making predicted twilight times given location and zenith #
-cal.dat<-vector('list',nBirds)
 
 for(i in 1:nBirds){
-  cal.dat[[i]] <- data.frame(Twilight = twilight(rep(tm[[i]], each = 2),
-                                                 lon = CapLocs[1], 
-                                                 lat = CapLocs[2], 
-                                                 rise = rise[[i]], zenith = 94),
-                             Rise = rise[[i]]) 
+
+twl[[i]]  <- findTwilights(tagdata = OVENdata[[i]], 
+                      threshold = 1, 
+                      include = seed[[i]],
+                      dark.min = 240) # minimum dark period in minutes
+
+twlEdit[[i]] <- twilightEdit(twilights = twl[[i]], 
+                    window = 4,           # two days before and two days after
+                    outlier.mins = 30,    # difference in mins
+                    stationary.mins = 15, # are the other surrounding twilights within 25 mins of one another
+                    plot = TRUE)
+
+twlEdit [[i]] <- twilightAdjust(twilights = twlEdit[[i]], 
+                      interval = 120) # The unit here is seconds
 }
 
-twl<-vector('list',nBirds)
-for(i in 1:nBirds){
-twl[[i]]<-readRDS(paste0("Data/GLdata/OVEN/twilightFiles/","NH_",BirdId[[i]],".rds"))
-}
+# Save only the twilights that were not deleted #
+
+twlEdit <- lapply(twlEdit, subset, !Deleted)
+
+twlEdit[[1]] <- twlEdit[[1]][4:nrow(twlEdit[[1]]),]
+
+twlEdit[[3]] <- twlEdit[[3]][7:nrow(twlEdit[[3]]),]
 
 # Create a vector with the dates known to be at deployment #
 calib.dates <- vector('list',nBirds)
@@ -587,110 +590,11 @@ for(i in 1:nBirds){
   # save the Twilight model parameters
   alpha[[i]]<- c(fitml[[i]]$estimate[1], fitml[[i]]$estimate[2]) 
 }
-CapLocs_NB<-array(NA,c(16,2))
-
-twl_NB<-vector('list',16)
-twl_rds<-list.files(path = "D:/GL_wind",pattern="twl_",full.names=TRUE)
-for(i in 1:16){
-twl_NB[[i]]<-readRDS(twl_rds[i])
-}
-
-# Create an array for the long / lat where birds were captured
-CapLocs_NB[4:12,1]<- -77.93
-CapLocs_NB[4:12,2]<- 18.04
-CapLocs_NB[1:3,1]<- -80.94
-CapLocs_NB[1:3,2]<- 25.13
-CapLocs_NB[13:16,1]<- -66.86
-CapLocs_NB[13:16,2]<- 17.97
-
-plot(OVENdist,col="gray",border="gray")
-plot(Americas,add=TRUE)
-points(CapLocs_NB,cex=1.5,pch=19)
-
-
-head(twl_NB[[13]])
-
-
-end.date_NB<-c(rep("2011-04-15",3),
-                   "2011-04-15",
-               rep("2010-04-15",2),
-               rep("2011-04-15",4),
-                   "2010-04-15",
-                   "2011-04-15",
-               rep("2012-04-15",4))
-               
-               
-
-# Create a vector with the dates known to be at deployment #
-calib.dates_NB <- vector('list',16)
-
-for(i in 1:16){
-  calib.dates_NB[[i]] <- c(strptime(twl_NB[[i]][1,1],format="%Y-%m-%d"),as.POSIXct(end.date_NB[i]))
-}
-
-calibration.data_NB<-vector('list',16)
-
-for(i in 1:16){
-  calibration.data_NB[[i]]<-subset(twl_NB[[i]],twl_NB[[i]]$Twilight>=calib.dates_NB[[i]][1] & twl_NB[[i]]$Twilight<=calib.dates_NB[[i]][2])
-}
-
-
-
-# Generate empty lists to store data 
-sun_NB<-z_NB<-twl_t_NB<-twl_deviation_NB<-fitml_NB<-alpha_NB<-vector('list',16)
-
-# Determine the sun elevation angle - here called the Zenith angle #
-
-for(i in 1:16){
-  
-  # Calculate solar time from calibration data 
-  sun_NB[[i]]  <- solar(calibration.data_NB[[i]][,1])
-  
-  # Adjust the solar zenith angle for atmospheric refraction
-  z_NB[[i]] <- refracted( zenith(sun = sun_NB[[i]],
-                              lon = CapLocs_NB[i,1], 
-                              lat = CapLocs_NB[i,2]))
-  
-  twl_t_NB[[i]] <- twilight(tm = calibration.data_NB[[i]][,1],
-                         lon = CapLocs_NB[i,1], 
-                         lat = CapLocs_NB[i,2], 
-                         rise = calibration.data_NB[[i]][,2],
-                         zenith = quantile(z_NB[[i]],probs=0.5))
-  
-  # Determine the difference in minutes from when the sun rose and the geolocator said it rose 
-  twl_deviation_NB[[i]] <- ifelse(calibration.data_NB[[i]]$Rise, as.numeric(difftime(calibration.data_NB[[i]][,1], twl_t_NB[[i]], units = "mins")),
-                               as.numeric(difftime(twl_t_NB[[i]], calibration.data_NB[[i]][,1], units = "mins")))
-  
-  # Throw out values less than 0 - These values are not valid 
-  twl_deviation_NB[[i]]<-subset(twl_deviation_NB[[i]], subset=twl_deviation_NB[[i]]>=0)
-  
-  # Describe the distribution of the error 
-  fitml_NB[[i]] <- fitdistr(twl_deviation_NB[[i]], "log-Normal")
-  
-  # save the Twilight model parameters
-  alpha_NB[[i]]<- c(fitml_NB[[i]]$estimate[1], fitml_NB[[i]]$estimate[2]) 
-}
-
-alpha
-alpha_NB
-
-meanBalpha<-c(mean(unlist(lapply(alpha,function(x) x[1]))),mean(unlist(lapply(alpha,function(x) x[2]))))
-meanNBalpha<-c(mean(unlist(lapply(alpha_NB,function(x) x[1]))),mean(unlist(lapply(alpha_NB,function(x) x[2]))))
-names(meanBalpha)<-names(meanNBalpha)<-names(alpha[[1]])
-
-
-
-winterZ<-quantile(unlist(z_NB),probs=0.5)
-print("Breeding Zenith Angle")
-median(unlist(z))
-print("Non-breeding Zenith Angle")
-median(unlist(z_NB))
-
 
 b<-unlist(twl_deviation)
 b[b>400]<-NA
 
-cols<-c("red","blue","green","yellow","orange","purple","brown","gray","black","pink")
+cols<-colorRampPalette(c("blue","purple","red"))
 seq <- seq(0,60, length = 100)
 par(mfrow=c(1,2),mar=c(4,4,0,0))
 hist(b, freq = F,
@@ -703,44 +607,162 @@ hist(b, freq = F,
      xlab = "Twilight error (mins)")
 axis(2,las=2)
 for(i in 1:nBirds){
-  lines(seq, dlnorm(seq, alpha[[i]][1], alpha[[i]][2]), col = cols[i], lwd = 3, lty = 2)
+  lines(seq, dlnorm(seq, alpha[[i]][1], alpha[[i]][2]), col = cols(nBirds)[as.numeric(cut(i,breaks = seq(0,nBirds,1)))], lwd = 3, lty = 2)
 }
 
 #Zenith angle plot
 par(bty="l")
-plot(median(z[[1]],na.rm=TRUE),xlim=c(1,nBirds),ylim=c(80,100),pch=19,ylab="Zenith Angle",xlab="OVEN",col=cols[1])
-segments(1,quantile(z[[1]],probs=0.025),1,quantile(z[[1]],probs=0.975),col=cols[1])
+plot(median(z[[1]],na.rm=TRUE),
+     xlim=c(1,nBirds),
+     ylim=c(80,100),
+     pch=19,
+     ylab="Zenith Angle",
+     xlab="OVEN",
+     col=cols(nBirds)[as.numeric(cut(1,breaks = seq(0,nBirds,1)))])
+segments(1,quantile(z[[1]],probs=0.025),
+         1,quantile(z[[1]],probs=0.975),
+         col=cols(nBirds)[as.numeric(cut(1,breaks = seq(0,nBirds,1)))])
 for(i in 2:nBirds){
   par(new = TRUE)
-  plot(median(z[[i]],na.rm=TRUE)~i,xlim=c(1,nBirds),ylim=c(80,100),pch=19,yaxt="n",xaxt="n",ylab="",xlab="",col=cols[i])
-  segments(i,quantile(z[[i]],probs=0.025),i,quantile(z[[i]],probs=0.975),col=cols[i])
+  plot(median(z[[i]],na.rm=TRUE)~i,
+       xlim=c(1,nBirds),
+       ylim=c(80,100),
+       pch=19,
+       yaxt="n",
+       xaxt="n",
+       ylab="",
+       xlab="",
+       col=cols(nBirds)[as.numeric(cut(i,breaks = seq(0,nBirds,1)))])
+  segments(i,quantile(z[[i]],probs=0.025),
+           i,quantile(z[[i]],probs=0.975),
+           col = cols(nBirds)[as.numeric(cut(i,breaks = seq(0,nBirds,1)))])
 }
 
 # Create empty vectors to store objects #
-d.twl<-path<-vector('list',nBirds)
+path <- Zeniths <- vector('list',nBirds)
 
 zenith0<-zenith1<-rep(NA,nBirds)
+
 
 # loop through the birds #
 for(i in 1:nBirds){
   # Store the zenith (sun-elevation angle)
   zenith0[i] <-quantile(z[[i]],prob=0.5)
   zenith1[i]<-quantile(z[[i]],prob=0.95)
+Zeniths[[i]] <- rep(zenith0[i],nrow(twlEdit[[i]]))
+if(i %in% c(1,3,8)){
+Zeniths[[i]][which(twlEdit[[i]][,1] > as.POSIXct("2010-09-15", tz= "GMT") &
+                   twlEdit[[i]][,1] < as.POSIXct("2011-05-01", tz = "GMT"))] <- zenith1[i]
 }
+if(i %in% c(2,4:7,9:20)){
+Zeniths[[i]][which(twlEdit[[i]][,1] > as.POSIXct("2011-09-15", tz= "GMT") &
+                   twlEdit[[i]][,1] < as.POSIXct("2012-05-01", tz = "GMT"))] <- zenith1[i]
+}
+}
+
 
 # subset the twilight file for dates after the first calibration date (presumably the deployment date)  
 # and exclude points that were deleted  
 # note we didn't delete any transitions here
 
-for(i in 1:nBirds){  
-  d.twl[[i]]<-subset(twl[[i]],twl[[i]]$Twilight>=calib.dates[[i]][1] & !Deleted)
-  
-  path[[i]] <- thresholdPath(twilight = d.twl[[i]]$Twilight,
-                             rise = d.twl[[i]]$Rise,
-                             zenith = zenith1[i],
-                             tol = 0)
-}
+tol <- array(0.08, c(nBirds,2))
 
+# Manual Adjustments 
+tol[1,1] <- 0.1
+tol[2,1] <- 0.14
+tol[3,1] <- 0.11
+tol[4,1] <- 0.11
+tol[5,1]
+tol[6,1]
+tol[7,1]
+tol[8,1]
+tol[9,1]
+tol[10,1]
+tol[11,1]
+tol[12,1]
+tol[13,1]
+tol[14,1]
+tol[15,1]
+tol[16,1]
+tol[17,1]
+tol[18,1]
+tol[19,1]
+tol[20,1]
+
+
+tol[1,2] <- 0.1
+tol[2,2] <- 0.23
+tol[3,2] <- 0.383  # GL died during non-breeding season
+tol[4,2] <- 0.16
+tol[5,2]
+tol[6,2]
+tol[7,2]
+tol[8,2]
+tol[9,2]
+tol[10,2]
+tol[11,2]
+tol[12,2]
+tol[13,2]
+tol[14,2]
+tol[15,2]
+tol[16,2]
+tol[17,2]
+tol[18,2]
+tol[19,2]
+tol[20,2]
+
+for(i in 1:nBirds){  
+  
+  path[[i]] <- thresholdPath(twilight = twlEdit[[i]]$Twilight,
+                             rise = twlEdit[[i]]$Rise,
+                             zenith = Zeniths[[i]],
+                             tol = tol[i,])
+}
+cols <- colorRampPalette(c("blue","purple","red"))
+
+#for(i in 1:nBirds){
+  i = 1
+  print(BirdId[[i]])
+  layout(matrix(c(1,3,
+                  2,3), 2, 2, byrow = TRUE))
+  par(mar=c(2,4,2,0))
+  plot(path[[i]]$time, path[[i]]$x[, 2], 
+       type = "b", 
+       pch = 16, 
+       cex = 0.5, 
+       ylab = "Latitude",
+       xlab = '',
+       xaxt="n",
+       col=cols(40)[as.numeric(cut(abs(solar(twlEdit[[i]]$Twilight[twlEdit[[i]]$Rise])$sinSolarDec),breaks = seq(0,0.4,0.01)))])
+  abline(h = CapLocs[1,2])
+  abline(v = as.POSIXct("2015-09-23"),col="red",lty=2,lwd=1.5)
+  abline(v = as.POSIXct("2016-03-20"),col="red",lty=2,lwd=1.5)
+  par(mar=c(2,4,2,0))
+  plot(path[[i]]$time, path[[i]]$x[, 1], 
+       type = "b",
+       pch = 16,
+       cex = 0.5,
+       ylab = "Longitude",
+       xlab = '',
+       col= cols(40)[as.numeric(cut(abs(solar(twlEdit[[i]]$Twilight[twlEdit[[i]]$Rise])$sinSolarDec),breaks = seq(0,0.4,0.01)))])
+  abline(h = CapLocs[1,1])
+  abline(v = as.POSIXct("2015-09-23"),col="red",lty=2,lwd=1.5)
+  abline(v = as.POSIXct("2016-03-20"),col="red",lty=2,lwd=1.5)
+  plot(Americas,
+       col = "grey95",
+       xlim = c(-120,-60),
+       ylim=c(0,40))
+  plot(OVENdist, 
+       col = "grey45",
+       border="grey45",
+       add=TRUE)
+  box()
+  lines(path[[i]]$x,
+        col = ifelse(path[[i]]$time<as.POSIXct("2016-01-01",format="%Y-%m-%d"),"blue","green"))
+  points(path[[i]]$x, 
+        pch = 16, cex = 0.5, col=ifelse(path[[i]]$time<as.POSIXct("2016-01-01",format="%Y-%m-%d"),"blue","green"))
+#Sys.sleep(3)
+#}
 
 x0 <- z0 <- vector('list',nBirds)
 
