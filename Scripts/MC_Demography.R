@@ -19,10 +19,11 @@ library(mth)
 #
 #############################################################################
 
-# Black-throated blue warbler 
-
 Americas<-shapefile("Spatial_Layers/Americas.shp")
 states<-shapefile("Spatial_Layers/st99_d00.shp")
+
+# Black-throated blue warbler 
+
 BTBWdist<-shapefile("Spatial_Layers/BTBWdist.shp")
 BTBWdist<-gUnaryUnion(BTBWdist, id = NULL)
 
@@ -536,6 +537,19 @@ twlEdit[[1]] <- twlEdit[[1]][4:nrow(twlEdit[[1]]),]
 
 twlEdit[[3]] <- twlEdit[[3]][7:nrow(twlEdit[[3]]),]
 
+twlEdit[[5]] <- twlEdit[[5]][1:(nrow(twlEdit[[5]])-7),]
+twlEdit[[6]] <- twlEdit[[6]][6:nrow(twlEdit[[6]]),]
+twlEdit[[7]] <- twlEdit[[7]][7:nrow(twlEdit[[7]]),]
+twlEdit[[8]] <- twlEdit[[8]][4:nrow(twlEdit[[8]]),]
+twlEdit[[9]] <- twlEdit[[9]][1:(nrow(twlEdit[[9]])-4),]
+twlEdit[[10]] <- twlEdit[[10]][4:(nrow(twlEdit[[10]])-3),]
+twlEdit[[11]] <- twlEdit[[11]][6:(nrow(twlEdit[[11]])-3),]
+twlEdit[[12]] <- twlEdit[[12]][4:(nrow(twlEdit[[12]])-14),]
+twlEdit[[13]] <- twlEdit[[13]][5:nrow(twlEdit[[13]]),]
+twlEdit[[14]] <- twlEdit[[14]][5:(nrow(twlEdit[[14]])-5),]
+twlEdit[[15]] <- twlEdit[[15]][4:(nrow(twlEdit[[15]])-5),]
+twlEdit[[16]] <- twlEdit[[16]][1:(nrow(twlEdit[[16]])-5),]
+
 # Create a vector with the dates known to be at deployment #
 calib.dates <- vector('list',nBirds)
 
@@ -592,7 +606,7 @@ for(i in 1:nBirds){
 }
 
 b<-unlist(twl_deviation)
-b[b>400]<-NA
+b[b>100]<-NA
 
 cols<-colorRampPalette(c("blue","purple","red"))
 seq <- seq(0,60, length = 100)
@@ -601,7 +615,7 @@ hist(b, freq = F,
      yaxt="n",
      ylim = c(0, 0.15),
      xlim = c(0, 60),
-     breaks=15,
+     breaks=25,
      col="gray",
      main = "",
      xlab = "Twilight error (mins)")
@@ -668,44 +682,46 @@ Zeniths[[i]][which(twlEdit[[i]][,1] > as.POSIXct("2011-09-15", tz= "GMT") &
 tol <- array(0.08, c(nBirds,2))
 
 # Manual Adjustments 
-tol[1,1] <- 0.1
+# These adjustments were made to maximize the locations on land
+
+tol[1,1] <- 0.26
 tol[2,1] <- 0.14
 tol[3,1] <- 0.11
-tol[4,1] <- 0.11
-tol[5,1]
-tol[6,1]
-tol[7,1]
-tol[8,1]
-tol[9,1]
-tol[10,1]
-tol[11,1]
-tol[12,1]
-tol[13,1]
-tol[14,1]
-tol[15,1]
-tol[16,1]
+tol[4,1] <- 0.125
+tol[5,1] <- 0.15
+tol[6,1] <- 0.18
+tol[7,1] <- 0.14
+tol[8,1] <- 0.18
+tol[9,1] <- 0.1
+tol[10,1] <- 0.08
+tol[11,1] <- 0.16
+tol[12,1] <- 0.12
+tol[13,1] <- 0.14
+tol[14,1] <- 0.13
+tol[15,1] <- 0.12
+tol[16,1] <- 0.1
 tol[17,1]
 tol[18,1]
 tol[19,1]
 tol[20,1]
 
 
-tol[1,2] <- 0.1
+tol[1,2] <- 0.25
 tol[2,2] <- 0.23
 tol[3,2] <- 0.383  # GL died during non-breeding season
-tol[4,2] <- 0.16
-tol[5,2]
-tol[6,2]
-tol[7,2]
-tol[8,2]
-tol[9,2]
-tol[10,2]
-tol[11,2]
-tol[12,2]
-tol[13,2]
-tol[14,2]
-tol[15,2]
-tol[16,2]
+tol[4,2] <- 0.18
+tol[5,2] <- 0.2
+tol[6,2] <- 0.2
+tol[7,2] <- 0.21
+tol[8,2] <- 0.24
+tol[9,2] <- 0.25
+tol[10,2] <- 0.23
+tol[11,2] <- 0.26
+tol[12,2] <- 0.24
+tol[13,2] <- 0.19
+tol[14,2] <- 0.2205
+tol[15,2] <- 0.1
+tol[16,2] <- 0.1
 tol[17,2]
 tol[18,2]
 tol[19,2]
@@ -715,13 +731,13 @@ for(i in 1:nBirds){
   
   path[[i]] <- thresholdPath(twilight = twlEdit[[i]]$Twilight,
                              rise = twlEdit[[i]]$Rise,
-                             zenith = Zeniths[[i]],
+                             zenith = zenith0[i],
                              tol = tol[i,])
 }
 cols <- colorRampPalette(c("blue","purple","red"))
 
 #for(i in 1:nBirds){
-  i = 1
+  i = 16
   print(BirdId[[i]])
   layout(matrix(c(1,3,
                   2,3), 2, 2, byrow = TRUE))
