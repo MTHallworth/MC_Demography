@@ -530,7 +530,7 @@ twlEdit [[i]] <- twilightAdjust(twilights = twlEdit[[i]],
 }
 
 # Save only the twilights that were not deleted #
-
+# Remove extreme outliers at the start / end of recording #
 twlEdit <- lapply(twlEdit, subset, !Deleted)
 
 twlEdit[[1]] <- twlEdit[[1]][4:nrow(twlEdit[[1]]),]
@@ -549,6 +549,10 @@ twlEdit[[13]] <- twlEdit[[13]][5:nrow(twlEdit[[13]]),]
 twlEdit[[14]] <- twlEdit[[14]][5:(nrow(twlEdit[[14]])-5),]
 twlEdit[[15]] <- twlEdit[[15]][4:(nrow(twlEdit[[15]])-5),]
 twlEdit[[16]] <- twlEdit[[16]][1:(nrow(twlEdit[[16]])-5),]
+twlEdit[[17]] <- twlEdit[[17]][6:nrow(twlEdit[[17]]),]
+twlEdit[[18]] <- twlEdit[[18]][1:(nrow(twlEdit[[18]])-5),]
+twlEdit[[19]] <- twlEdit[[19]][4:(nrow(twlEdit[[19]])-14),]
+twlEdit[[20]] <- twlEdit[[20]][6:nrow(twlEdit[[20]]),]
 
 # Create a vector with the dates known to be at deployment #
 calib.dates <- vector('list',nBirds)
@@ -699,11 +703,11 @@ tol[12,1] <- 0.12
 tol[13,1] <- 0.14
 tol[14,1] <- 0.13
 tol[15,1] <- 0.12
-tol[16,1] <- 0.1
-tol[17,1]
-tol[18,1]
-tol[19,1]
-tol[20,1]
+tol[16,1] <- 0.12
+tol[17,1] <- 0.121
+tol[18,1] <- 0.123
+tol[19,1] <- 0.15
+tol[20,1] <- 0.155
 
 
 tol[1,2] <- 0.25
@@ -721,23 +725,22 @@ tol[12,2] <- 0.24
 tol[13,2] <- 0.19
 tol[14,2] <- 0.2205
 tol[15,2] <- 0.1
-tol[16,2] <- 0.1
-tol[17,2]
-tol[18,2]
-tol[19,2]
-tol[20,2]
+tol[16,2] <- 0.23
+tol[17,2] <- 0.2
+tol[18,2] <- 0.25
+tol[19,2] <- 0.19
+tol[20,2] <- 0.23
 
 for(i in 1:nBirds){  
-  
   path[[i]] <- thresholdPath(twilight = twlEdit[[i]]$Twilight,
                              rise = twlEdit[[i]]$Rise,
                              zenith = zenith0[i],
                              tol = tol[i,])
+
 }
 cols <- colorRampPalette(c("blue","purple","red"))
 
-#for(i in 1:nBirds){
-  i = 16
+for(i in 1:nBirds){
   print(BirdId[[i]])
   layout(matrix(c(1,3,
                   2,3), 2, 2, byrow = TRUE))
@@ -777,8 +780,8 @@ cols <- colorRampPalette(c("blue","purple","red"))
         col = ifelse(path[[i]]$time<as.POSIXct("2016-01-01",format="%Y-%m-%d"),"blue","green"))
   points(path[[i]]$x, 
         pch = 16, cex = 0.5, col=ifelse(path[[i]]$time<as.POSIXct("2016-01-01",format="%Y-%m-%d"),"blue","green"))
-#Sys.sleep(3)
-#}
+Sys.sleep(3)
+}
 
 x0 <- z0 <- vector('list',nBirds)
 
@@ -793,11 +796,18 @@ for(i in 1:nBirds){
 beta <- c(0.7, 0.08)
 
 fixedx <- vector('list',nBirds)
+sept1 <- rep(NA,nBirds)
 
 for(i in 1:nBirds){
+if(i %in% c(1,3,8)){
+  sept1[i] <- max(which(twlEdit[[i]][,1] < as.POSIXct("2010-09-02",tz = "GMT")))
+}
+if(i %in% c(2,4:7,9:nBirds)){
+  sept1[i] <- max(which(twlEdit[[i]][,1] < as.POSIXct("2011-09-02",tz = "GMT")))
+}
   fixedx[[i]]<- rep(FALSE, nrow(x0[[i]]))
   
-  fixedx[[i]][c(1:10,(nrow(x0[[i]])-3):nrow(x0[[i]]))] <- TRUE
+  fixedx[[i]][c(1:sept1[i],(nrow(x0[[i]])-3):nrow(x0[[i]]))] <- TRUE
   
   x0[[i]][fixedx[[i]], 1] <- CapLocs[1]
   x0[[i]][fixedx[[i]], 2] <- CapLocs[2]
@@ -807,8 +817,8 @@ for(i in 1:nBirds){
 
 
 ## Function to construct a land/sea mask
-distribution.mask <- function(xlim, ylim, n = 4, land = TRUE, shape) {
-  r <- raster(nrows = n * diff(ylim), ncols = n * diff(xlim), xmn = xlim[1], 
+distribution.mask <- function(xlim, ylim, res = c(0.25,0.25), land = TRUE, shape) {
+  r <- raster(res = res, xmn = xlim[1], 
               xmx = xlim[2], ymn = ylim[1], ymx = ylim[2], crs = proj4string(shape))
   r <- cover(rasterize(shape, shift = c(-360, 0), r, 1, silent = TRUE), 
              rasterize(shape, r, 1, silent = TRUE), rasterize(shape, r, 1, silent = TRUE))
@@ -834,7 +844,7 @@ ylim=c(0,55)
 is.dist <- distribution.mask(shape=OVENdist,
                              xlim = xlim,
                              ylim = ylim,
-                             n = 4,
+                             res = c(0.25,0.25),
                              land = TRUE)
 
 # Define the log prior for x and z
@@ -843,53 +853,22 @@ log.prior <- function(p) {
   ifelse(f | is.na(f), 0, -10)
 }
 
-
 # Define the threshold model - slimilar to above #
 model <-  vector('list', nBirds)
 
-# Set up changes in alpha and zenith angles here between breeding and non-breeding # 
-# first - find the dates you want to change #
-# I want the values to change from breeding to non-breeding on Nov1 and change back on April1 # 
-
-November01<-rep("2011-11-01",20)
-November01[c(1,3,8)]<-"2010-11-01"
-Apr1<-rep("2012-04-01",20)
-Apr1[c(1,3,8)]<-"2011-04-01"
-
-which(strptime(path[[4]]$time,format="%Y-%m-%d")=="2012-04-01")
-
-winterZ<-quantile(unlist(z_NB),probs=0.95)
-
-alphaBoth<-zenithBoth<-vector('list',20)
-
 for(i in 1:nBirds){
-
-alphaBoth[[i]]<-cbind(rep(alpha[[i]][1],length(path[[i]]$time)),rep(alpha[[i]][2],length(path[[i]]$time)))
-zenithBoth[[i]]<-rep(zenith1[[i]],length(path[[i]]$time))
-
-alphaBoth[[i]][which(strptime(path[[i]]$time,format="%Y-%m-%d")==November01[i])[1]:
-               which(strptime(path[[i]]$time,format="%Y-%m-%d")==Apr1[i])[1],1]<-meanNBalpha[1]
-alphaBoth[[i]][which(strptime(path[[i]]$time,format="%Y-%m-%d")==November01[i])[1]:
-               which(strptime(path[[i]]$time,format="%Y-%m-%d")==Apr1[i])[1],2]<-meanNBalpha[2]
-
-zenithBoth[[i]][which(strptime(path[[i]]$time,format="%Y-%m-%d")==November01[i])[1]:
-               which(strptime(path[[i]]$time,format="%Y-%m-%d")==Apr1[i])[1]]<-winterZ
-}
-
-for(i in 1:nBirds){
-  model[[i]]<- thresholdModel(twilight = d.twl[[i]]$Twilight,
-                              rise = d.twl[[i]]$Rise,
+  model[[i]]<- thresholdModel(twilight = twlEdit[[i]]$Twilight,
+                              rise = twlEdit[[i]]$Rise,
                               twilight.model = "ModifiedLogNormal",
-                              alpha = alphaBoth[[i]],
+                              alpha = alpha[[i]],
                               beta = beta,
                               # Here is where we set the constraints for land
                               logp.x = log.prior, logp.z = log.prior, 
                               x0 = x0[[i]],
                               z0 = z0[[i]],
-                              zenith = zenithBoth[[i]],
+                              zenith = zenith0[i],
                               fixedx = fixedx[[i]])
 }
-
 
 # This defines the error distribution around each location #
 proposal.x <- proposal.z <- vector('list',nBirds)
@@ -899,16 +878,19 @@ for(i in 1:nBirds){
   proposal.z[[i]] <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(z0[[i]]))
 }
 
-fit <- vector('list', nBirds)
+fit <- xsum <- zsum <- vector('list', nBirds)
 
 for(i in 1:nBirds){
   
   fit[[i]] <- estelleMetropolis(model = model[[i]],
                                 proposal.x = proposal.x[[i]],
                                 proposal.z = proposal.z[[i]],
-                                iters = 10000, # This value sets the number of iterations to run
-                                thin = 1,
+                                iters = 2000, # This value sets the number of iterations to run
+                                thin = 10,
                                 chains = 3)
+
+xsum[[i]] <- locationSummary(fit[[i]]$x)
+zsum[[i]] <- locationSummary(fit[[i]]$z)  
 
 ### Fine Tuning 
 
@@ -918,10 +900,10 @@ proposal.z[[i]] <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(z0[[i]]))
 fit[[i]] <- estelleMetropolis(model = model[[i]],
                               proposal.x = proposal.x[[i]],
                               proposal.z = proposal.z[[i]],
-                              x0 = chainLast(fit[[i]]$x),
-                              z0 = chainLast(fit[[i]]$z),
-                              iters=10000, # This value sets the number of iterations to run
-                              thin=2,
+                              x0 = cbind(xsum[[i]]$'Lon.50%',xsum[[i]]$'Lat.50%'),
+                              z0 = cbind(zsum[[i]]$'Lon.50%',zsum[[i]]$'Lat.50%'),
+                              iters=2000, # This value sets the number of iterations to run
+                              thin=10,
                               chains=3)
 
 # Final Run
@@ -929,32 +911,45 @@ fit[[i]] <- estelleMetropolis(model = model[[i]],
 proposal.x[[i]] <- mvnorm(chainCov(fit[[i]]$x),s=0.1)
 proposal.z[[i]] <- mvnorm(chainCov(fit[[i]]$z),s=0.1)
 
+xsum[[i]] <- locationSummary(fit[[i]]$x)
+zsum[[i]] <- locationSummary(fit[[i]]$z)  
+
 # Note the increase in number of interations - this takes a bit longer to run
 fit[[i]] <- estelleMetropolis(model = model[[i]],
                               proposal.x = proposal.x[[i]],
                               proposal.z = proposal.z[[i]],
-                              x0=chainLast(fit[[i]]$x),
-                              z0=chainLast(fit[[i]]$z),
+                              x0 = cbind(xsum[[i]]$'Lon.50%',xsum[[i]]$'Lat.50%'),
+                              z0 = cbind(zsum[[i]]$'Lon.50%',zsum[[i]]$'Lat.50%'),
                               iters=5000,  # This value sets the number of iterations to run
-                              thin=2,
+                              thin=10,
                               chains=3)
 
 }
 ## Inital results 
 
-# This step makes an empty raster #
-r <- raster(nrows=4*diff(ylim),ncols=4*diff(xlim),xmn=xlim[1],xmx=xlim[2],ymn=ylim[1],ymx=ylim[2])
+xlim <- c(-100,-60)
+ylim <- c(0,55)
+ 
 
-S <- vector('list',nBirds)
+# This step makes an empty raster #
+r <- raster(res = c(0.25,0.25),
+            xmn = xlim[1],
+            xmx = xlim[2], 
+            ymn = ylim[1],
+            ymx = ylim[2])
+
+S <- nonbreed <- breed <- vector('list',nBirds)
 
 for(i in 1:nBirds){
   S[[i]] <- slices(type="intermediate",
                    breaks="day",
                    mcmc=fit[[i]],
-                   grid=r)
+                   grid=r,
+                   weight = rep(0.5,length(fit[[i]][[1]]$time)))
 }
 
-DATES <-  tm_breed <-tm_winter<-breed<-winter<- vector('list',nBirds)
+#saveRDS(fit,"OVENfit_Feb_22_17.rds")
+###DATES <-  tm_breed <-tm_winter<-breed<-winter<- vector('list',nBirds)
 Aug31 <- Nov01  <- April1<- rep(NA,nBirds)
 
 year<-rep("2011-07-31",20)
